@@ -150,12 +150,28 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 		# We set the response status code to 200 (OK)
 		self.set_HTTP_headers(200)
 		# We should do some real HTML here
-		html_reponse = "<html><head><title>Basic Skeleton</title></head><body>This is the basic HTML content when receiving a GET</body></html>"
+		html_reponse = "<html><head><title>Basic Skeleton</title></head><body>This is the G HTML content when receiving a GET</body></html>"
 		#In practice, go over the entries list, 
 		#produce the boardcontents part, 
 		#then construct the full page by combining all the parts ...
+                entries = ""
+                with open('board_frontpage_header_template.html', 'r') as template:
+                    data = template.read()
+                    entries += data
+
+                with open('boardcontents_template.html', 'r') as template:
+                     data = template.read() % ('OurBoardTitle', "") 
+                     entries += data
+
+                with open('entry_template.html', 'r') as template:
+                    data = template.read() % ("entries/1", 1, "First message")
+                    entries += data
+                    
+                with open('board_frontpage_footer_template.html', 'r') as template:
+                    data = template.read() % ("Erik/Jesper") 
+                    entries += data
 		
-		self.wfile.write(html_reponse)
+                self.wfile.write(entries)
 #------------------------------------------------------------------------------------------------------
 	# we might want some other functions
 #------------------------------------------------------------------------------------------------------
@@ -167,7 +183,10 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 		# Here, we should check which path was requested and call the right logic based on it
 		# We should also parse the data received
 		# and set the headers for the client
-
+                if self.path == '/board':
+                    postData = self.parse_POST_request()
+                    print postData
+                    
 		# If we want to retransmit what we received to the other vessels
 		retransmit = False # Like this, we will just create infinite loops!
 		if retransmit:
