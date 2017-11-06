@@ -27,9 +27,6 @@ entry_template = ""
 PORT_NUMBER = 80
 #------------------------------------------------------------------------------------------------------
 
-
-
-
 #------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------
 class BlackboardServer(HTTPServer):
@@ -49,16 +46,20 @@ class BlackboardServer(HTTPServer):
 	# We add a value received to the store
 	def add_value_to_store(self, value):
 		# We add the value to the store
+                self.store[self.current_key] = value
+                self.current_key = self.current_key + 1
 		pass
 #------------------------------------------------------------------------------------------------------
 	# We modify a value received in the store
 	def modify_value_in_store(self,key,value):
 		# we modify a value in the store if it exists
+                self.store[key] = value
 		pass
 #------------------------------------------------------------------------------------------------------
 	# We delete a value received from the store
 	def delete_value_in_store(self,key):
 		# we delete a value in the store if it exists
+                del self.store[key]
 		pass
 #------------------------------------------------------------------------------------------------------
 # Contact a specific vessel with a set of variables to transmit to it
@@ -104,11 +105,6 @@ class BlackboardServer(HTTPServer):
 				# Here, we do it only once
 				self.contact_vessel(vessel, path, action, key, value)		
 #------------------------------------------------------------------------------------------------------
-
-
-
-
-
 
 
 #------------------------------------------------------------------------------------------------------
