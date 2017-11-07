@@ -35,7 +35,7 @@ class BlackboardServer(HTTPServer):
 	# We call the super init
 		HTTPServer.__init__(self,server_address, handler)
 		# we create the dictionary of values
-		self.store = {}
+                self.store = {1 : "First message"}
 		# We keep a variable of the next id to insert
 		self.current_key = 2
 		# our own ID (IP is 10.1.0.ID)
@@ -99,6 +99,7 @@ class BlackboardServer(HTTPServer):
 	def propagate_value_to_vessels(self, path, action, key, value):
 		# We iterate through the vessel list
 		for vessel in self.vessels:
+                        print "VESSEL" + vessel
 			# We should not send it to our own IP, or we would create an infinite loop of updates
 			if vessel != ("10.1.0.%s" % self.vessel_id):
 				# A good practice would be to try again if the request failed
@@ -161,18 +162,17 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                         entries += data
 
                     with open('boardcontents_template.html', 'r') as template:
-                         data = template.read() % ('OurBoardTitle', "") 
-                         entries += data
+                            firstThing = ""
+                            for k,v in sorted(self.server.store.items()):
+                                with open('entry_template.html', 'r') as template1:
+                                    firstThing += template1.read() % ("entries/"+str(k), k, v)
+                            data = template.read() % ('OurBoardTitle', firstThing) 
+                            entries += data
 
-                    with open('entry_template.html', 'r') as template:
-                        data = template.read() % ("entries/1", 1, "First HELLO")
-                        entries += data
-                            
                     with open('board_frontpage_footer_template.html', 'r') as template:
                         data = template.read() % ("Erik/Jesper") 
                         entries += data
                         
-                    print("ENTRIES IS " + entries)
                     self.wfile.write(entries)
                 elif self.path == "/board":
                     entries = ""
@@ -182,7 +182,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                          entries += data
                     
                     with open('entry_template.html', 'r') as template:
-                        for k, v in self.server.store.items():
+                        for k,v in sorted(self.server.store.items()):
                             with open('entry_template.html', 'r') as template1:
                                 data = template1.read() % ("entries/"+str(k), k, v)
                                 entries += data
@@ -203,19 +203,20 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                     postData = self.parse_POST_request()
                     value = postData['entry'][0]
                     self.server.add_value_to_store(value) 
-                    print(self.server.store)
 		# If we want to retransmit what we received to the other vessels
-		retransmit = False # Like this, we will just create infinite loops!
-		if retransmit:
-			# do_POST send the message only when the function finishes
-			# We must then create threads if we want to do some heavy computation
-			# 
-			# Random content
-			thread = Thread(target=self.server.propagate_value_to_vessels,args=("action", "key", "value") )
-			# We kill the process if we kill the server
-			thread.daemon = True
-			# We start the thread
-			thread.start()
+                    retransmit = True# Like this, we will just create infinite loops!
+                    if retransmit:
+                        # do_POST send the message only when the function finishes
+                        # We must then create threads if we want to do some heavy computation
+                        # 
+                        # Random content
+                        thread = Thread(target=self.server.propagate_value_to_vessels,args=("/boardtest", "/boardtest", "key", "value") )
+                        # We kill the process if we kill the server
+                        thread.daemon = True
+                        # We start the thread
+                        thread.start()
+                if self.path == "/boardtest":
+                    print "this is from propation"
 #------------------------------------------------------------------------------------------------------
 # POST Logic
 #------------------------------------------------------------------------------------------------------
