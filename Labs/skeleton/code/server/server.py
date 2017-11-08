@@ -3,8 +3,8 @@
 # TDA596 Labs - Server Skeleton
 # server/server.py
 # Input: Node_ID total_number_of_ID
-# Student Group:
-# Student names: John Doe & John Doe
+# Student Group: 2
+# Student names: Jesper Carlsson & Erik Forsstrom 
 #------------------------------------------------------------------------------------------------------
 # We import various libraries
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler # Socket specifically designed to handle HTTP requests
@@ -74,7 +74,7 @@ class BlackboardServer(HTTPServer):
 		try:
 			# We contact vessel:PORT_NUMBER since we all use the same port
 			# We can set a timeout, after which the connection fails if nothing happened
-			connection = HTTPConnection("%s:%d" % (vessel, PORT_NUMBER), timeout = 30)
+			connection = HTTPConnection("%s:%d" % (vessel_ip, PORT_NUMBER), timeout = 30)
 			# We only use POST to send data (PUT and DELETE not supported)
 			action_type = "POST"
 			# We send the HTTP request
@@ -88,7 +88,7 @@ class BlackboardServer(HTTPServer):
 				success = True
 		# We catch every possible exceptions
 		except Exception as e:
-			print "Error while contacting %s" % vessel
+			print "Error while contacting %s" % vessel_ip
 			# printing the error given by Python
 			print(e)
 
@@ -97,9 +97,9 @@ class BlackboardServer(HTTPServer):
 #------------------------------------------------------------------------------------------------------
 	# We send a received value to all the other vessels of the system
 	def propagate_value_to_vessels(self, path, action, key, value):
+                print ("Propagating " + path + " " + action + " " + value)
 		# We iterate through the vessel list
 		for vessel in self.vessels:
-                        print "VESSEL" + vessel
 			# We should not send it to our own IP, or we would create an infinite loop of updates
 			if vessel != ("10.1.0.%s" % self.vessel_id):
 				# A good practice would be to try again if the request failed
@@ -149,43 +149,50 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 #------------------------------------------------------------------------------------------------------
 	def do_GET_Index(self):
                 self.set_HTTP_headers(200)
+                '''
+                If the user is on / (index), we simply construct the page,
+                using the html-templates initiating the list of entries 
+                to contain one item
+                '''
                 if self.path == "/":
-                    # We set the response status code to 200 (OK)
-                    # We should do some real HTML here
-                    html_reponse = "<html><head><title>Basic Skeleton</title></head><body>This is the G HTML content when receiving a GET</body></html>"
-                    #In practice, go over the entries list, 
-                    #produce the boardcontents part, 
-                    #then construct the full page by combining all the parts ...
                     entries = ""
-                    with open('board_frontpage_header_template.html', 'r') as template:
+                    with open('server/board_frontpage_header_template.html', 'r') as template:
                         data = template.read()
                         entries += data
 
-                    with open('boardcontents_template.html', 'r') as template:
+                    with open('server/boardcontents_template.html', 'r') as template:
                             firstThing = ""
                             for k,v in sorted(self.server.store.items()):
-                                with open('entry_template.html', 'r') as template1:
+                                with open('server/entry_template.html', 'r') as template1:
                                     firstThing += template1.read() % ("entries/"+str(k), k, v)
                             data = template.read() % ('OurBoardTitle', firstThing) 
                             entries += data
 
-                    with open('board_frontpage_footer_template.html', 'r') as template:
-                        data = template.read() % ("Erik/Jesper") 
+                    with open('server/board_frontpage_footer_template.html', 'r') as template:
+                        data = template.read() % ("erifor@student.chalmers.se/cjesper@student.chalmers.se") 
                         entries += data
                         
                     self.wfile.write(entries)
+                    '''
+                    If the user wants to display a board, we:
+                        Construct html-elements using the values we have in our store-dictionary
+                        Append these to the html-string
+                        Write the to our html-file
+                    '''
                 elif self.path == "/board":
                     entries = ""
                     
-                    with open('boardcontents_template.html', 'r') as template:
+                    with open('server/boardcontents_template.html', 'r') as template:
                          data = template.read() % ('OurBoardTitle', "") 
                          entries += data
-                    
-                    with open('entry_template.html', 'r') as template:
+                   
+                    with open('server/entry_template.html', 'r') as template:
+                        #Sort the dictionary so items appear in the correct order    
                         for k,v in sorted(self.server.store.items()):
-                            with open('entry_template.html', 'r') as template1:
+                            with open('server/entry_template.html', 'r') as template1:
                                 data = template1.read() % ("entries/"+str(k), k, v)
                                 entries += data
+                    
                     self.wfile.write(entries)
                    #-----------------------------------------------------------------------------------------------------
 	# we might want some other functions
@@ -195,10 +202,13 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 #------------------------------------------------------------------------------------------------------
 	def do_POST(self):
 	        self.set_HTTP_headers(200)	
-            #print("Receiving a POST on %s" % self.path)
-		# Here, we should check which path was requested and call the right logic based on it
-		# We should also parse the data received
-		# and set the headers for the client
+                '''
+                    When we get a POST on /board, the user wants to add a new entry.
+                    We parse the request to get the new value, then add it to our
+                    store.
+                    Then, we propagate the value to the other vessels, passing 0 as
+                    the key since each vessel knows it's own current_key.
+                '''
                 if self.path == '/board':
                     postData = self.parse_POST_request()
                     value = postData['entry'][0]
@@ -206,25 +216,62 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 		# If we want to retransmit what we received to the other vessels
                     retransmit = True# Like this, we will just create infinite loops!
                     if retransmit:
-                        # do_POST send the message only when the function finishes
-                        # We must then create threads if we want to do some heavy computation
-                        # 
-                        # Random content
-                        thread = Thread(target=self.server.propagate_value_to_vessels,args=("/boardtest", "/boardtest", "key", "value") )
-                        # We kill the process if we kill the server
+                        thread = Thread(target=self.server.propagate_value_to_vessels,args=("/propagate", 'POST', 0, value) )
                         thread.daemon = True
-                        # We start the thread
                         thread.start()
-                if self.path == "/boardtest":
-                    print "this is from propation"
+                '''
+                    A POST containing /entries indicate that the user wants to remove
+                    or modify that element of the list. We find out which action is to
+                    be taken and call the appropriate function.
+                    A propagation is then made, which uses the propagation-paths
+                    mentioned below.
+                '''
+                if '/entries' in self.path:
+                    whichEntry = self.path[9:]
+                    postData = self.parse_POST_request()
+                    value = postData['entry'][0]
+                    delOrModify = postData['delete'][0]
+                    #If we want to delete : Delete the entry in our store, then propagate to other vessels
+                    if delOrModify == '1':
+                        self.server.delete_value_in_store(int(whichEntry))
+                        retransmit = True
+                        if retransmit:
+                            thread = Thread(target=self.server.propagate_value_to_vessels,args=("/propagateDelete", 'POST', whichEntry, value) )
+                            thread.daemon = True
+                            thread.start()
+                    #If we want to modify
+                    else:
+                        self.server.modify_value_in_store(int(whichEntry), value)
+                        retransmit = True
+                        if retransmit:
+                            thread = Thread(target=self.server.propagate_value_to_vessels,args=("/propagateModify", 'POST', whichEntry, value) )
+                            thread.daemon = True
+                            thread.start()
+                '''
+                    These paths are used for when values are propagated from one vessel to another.
+                    Depending on which of the paths receive a POST, the appropriate function will be called.
+                '''
+                if self.path == '/propagate':
+                    postData = self.parse_POST_request()
+                    value = postData['value'][0]
+                    self.server.add_value_to_store(value) 
+                
+                if self.path == '/propagateDelete':
+                    postData = self.parse_POST_request()
+                    key = postData['key'][0]
+                    self.server.delete_value_in_store(int(key)) 
+                    
+                if self.path == '/propagateModify':
+                    postData = self.parse_POST_request()
+                    key = postData['key'][0]
+                    value = postData['value'][0]
+                    self.server.modify_value_in_store(int(key), value) 
+                    
 #------------------------------------------------------------------------------------------------------
 # POST Logic
 #------------------------------------------------------------------------------------------------------
 	# We might want some functions here as well
 #------------------------------------------------------------------------------------------------------
-
-
-
 
 
 #------------------------------------------------------------------------------------------------------
