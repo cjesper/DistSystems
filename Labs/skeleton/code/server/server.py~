@@ -38,6 +38,11 @@ class BlackboardServer(HTTPServer):
 
                 all_candidates_received = False
                 leader_elected = False
+                leader_IP = ""
+                received_IP = [] 
+                #while not leader_elected and all_candidates_received:
+                 #   send_leader()
+
 		HTTPServer.__init__(self,server_address, handler)
 		# we create the dictionary of values
                 self.store = {1 : "First message"}
@@ -45,13 +50,13 @@ class BlackboardServer(HTTPServer):
 		self.current_key = 2
 		# our own ID (IP is 10.1.0.ID)
 		self.vessel_id = vessel_id
-                self.known_IPs = []
-                self.known_IPs.append("10.1.0."+str(self.vessel_id))
 		# The list of other vessels
 		self.vessels = vessel_list
                 #List of received IP
 		#while not all_candidates_received:
-                self.send_known_IPs()
+		time.sleep(1)
+		if self.vessel_id == 1:
+			self.send_own_IP()
 #------------------------------------------------------------------------------------------------------
 	# We add a value received to the store
 	def add_value_to_store(self, value):
@@ -64,27 +69,22 @@ class BlackboardServer(HTTPServer):
 	def modify_value_in_store(self,key,value):
 		# we modify a value in the store if it exists
                 self.store[key] = value
+		pass
 #------------------------------------------------------------------------------------------------------
 	# We delete a value received from the store
 	def delete_value_in_store(self,key):
 		# we delete a value in the store if it exists
                 del self.store[key]
+		pass
 
-        def add_ip(self, IPs):
-            print "Adding IPs"
-            if not "10.1.0."+str(self.vessel_id)in IPs:
-                for value in IPs:
-                    print type(value)
-                    self.known_IPs.append(value)
-            print self.known_IPs
-
-        def send_known_IPs(self):
+        def send_own_IP(self):
             nr_of_vessels = len(self.vessels)
+	    print(self.vessels)
             neighborId = ((self.vessel_id) % nr_of_vessels) + 1
+	    print "10.1.0." + str(self.vessel_id) 
             neighbor = "10.1.0."+str(neighborId)
-            thread = Thread(target=self.contact_vessel , args = (neighbor, "/propagateIP", 'POST', "key", self.known_IPs))
-            thread.daemon = True
-            thread.start()
+	    print neighbor
+            self.contact_vessel(neighbor, "/propagateIP", "POST", "key", "10.1.0." + str(self.vessel_id))
             
 #------------------------------------------------------------------------------------------------------
 # Contact a specific vessel with a set of variables to transmit to it
@@ -97,7 +97,6 @@ class BlackboardServer(HTTPServer):
 		# the HTTP header must contain the type of data we are transmitting, here URL encoded
 		headers = {"Content-type": "application/x-www-form-urlencoded"}
 		# We should try to catch errors when contacting the vessel
-                print vessel_ip + " " + key
 		try:
 			# We contact vessel:PORT_NUMBER since we all use the same port
 			# We can set a timeout, after which the connection fails if nothing happened
@@ -298,9 +297,9 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 '''
                 if self.path == '/propagateIP':
                     postData = self.parse_POST_request()
+                    key = postData['key'][0]
                     value = postData['value'][0]
-                    print "Value is " + value[2:len(value)-2]
-                    self.server.add_ip(["10.1.4.5", "10.1.4.6"])
+                    print postData
 
                     
 #------------------------------------------------------------------------------------------------------
