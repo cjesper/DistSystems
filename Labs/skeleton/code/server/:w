@@ -53,8 +53,8 @@ class BlackboardServer(HTTPServer):
                 self.sortedCandidates = []
                 self.leaderCandidates = []
                 self.sendDicts = {} 
-                self.neighborNumber = self.vessel_id % len(self.vessels) + 1
-                self.nextNeighbor = "10.1.0." + str(self.neighborNumber)
+                self.neighborNumber = 1
+                self.nextNeighbor = "10.1.0." + str(self.server.vessel_id % len(self.server.vessels) + self.neighborNumber)
                 #List of received IP
                 #if not self.vessel_id == 2:
                 if self.vessel_id == 2:
@@ -130,8 +130,8 @@ class BlackboardServer(HTTPServer):
 			print(e)
                         
                         if not self.leaderElected:
-                            self.neighborNumber = self.neighborNumber % len(self.vessels) +  1
-                            self.nextNeighbor = "10.1.0." + str(self.neighborNumber)
+                            self.neighborNumber = self.neighborNumber + 1 
+                            self.nextNeighbor = "10.1.0." + str(self.vessel_id % len(self.server.vessels) + self.neighborNumber)
 
                         #Catch if leader fails
                         if vessel_ip == self.leader:
