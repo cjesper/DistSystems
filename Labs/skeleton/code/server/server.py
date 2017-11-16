@@ -47,19 +47,18 @@ class BlackboardServer(HTTPServer):
 		self.vessel_id = vessel_id
 		# The list of other vessels
 		self.vessels = vessel_list
-                self.leaderElected = False
-                self.leader = ""
-                self.timesFailed = 0
+                self.random_vessel_nr = random.randint(0,15000)
+                #Leader Election Info
+                self.leaderElected = False #Used to determine what we should do in case of a timeout
+                self.leader = "No leader."
+                self.timesFailed = 0 #Used to determine which neighbor we should try to contact next
                 self.sortedCandidates = []
                 self.leaderCandidates = []
-                self.sendDicts = {} 
-                self.neighborNumber = self.vessel_id % len(self.vessels) + 1
-                self.nextNeighbor = "10.1.0." + str(self.neighborNumber)
-                #List of received IP
-                #if not self.vessel_id == 2:
-                if self.vessel_id == 2:
-                    sys.exit()
+                self.sendDicts = {} #The dictionary we send during the leader election, containing {RandomInt : vessel_ip}
+                self.neighborNumber = self.vessel_id % len(self.vessels) + 1 #See nextNeighbor
+                self.nextNeighbor = "10.1.0." + str(self.neighborNumber) #The neighbor we are currently trying to contact
                 self.elect()
+
 #------------------------------------------------------------------------------------------------------
 	# We add a value received to the store
 	def add_value_to_store(self, value):
@@ -79,27 +78,20 @@ class BlackboardServer(HTTPServer):
                 del self.store[key]
         
         def elect(self):
+            time.sleep(1)
             #neighbor = "10.1.0."+str(self.vessel_id % len(self.vessels) + 1)
-            rndNr = random.randint(0,15000)
-            self.sendDicts[rndNr] = "10.1.0." + str(self.vessel_id)
-            thread = Thread(target=self.contact_vessel , args=(self.nextNeighbor, "/elect", 'POST', rndNr, self.sendDicts))
+            thread = Thread(target=self.contact_vessel , args=(self.nextNeighbor, "/elect", 'POST', self.addSelf(), self.sendDicts))
             thread.daemon = True
             thread.start()
 
-        def addDict(self, dictToAdd):
-            self.sendDicts.append(dictToAdd)
-            print self.sendDicts
-            #thread = Thread(target=self.contact_vessel , args=(neighbor, "/elect", 'POST', rndNr, self.vessel_id) )
-            #thread.daemon = True
-            #thread.start()
-                   
+        def addSelf(self):
+            self.sendDicts[self.random_vessel_nr] = "10.1.0." + str(self.vessel_id)
+            print "Initialized to " + str(self.sendDicts)
+            return self.random_vessel_nr 
+
 #------------------------------------------------------------------------------------------------------
 # Contact a specific vessel with a set of variables to transmit to it
 	def contact_vessel(self, vessel_ip, path, action, key, value):
-                savePath = path
-                saveAction = action
-                saveKey = key
-                saveValue = value
 		# the Boolean variable we will return
 		success = False
 		print "Contacting vessel " + vessel_ip
@@ -128,10 +120,11 @@ class BlackboardServer(HTTPServer):
 			print "Error while contacting %s" % vessel_ip
 			# printing the error given by Python
 			print(e)
-                        
                         if not self.leaderElected:
                             self.neighborNumber = self.neighborNumber % len(self.vessels) +  1
                             self.nextNeighbor = "10.1.0." + str(self.neighborNumber)
+                            print "NextNeighbor changed to " + self.nextNeighbor
+                            #We have detected a crashed node - we need to inform the other nodes in the network about this
 
                         #Catch if leader fails
                         if vessel_ip == self.leader:
@@ -215,12 +208,11 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                             for k,v in sorted(self.server.store.items()):
                                 with open('server/entry_template.html', 'r') as template1:
                                     firstThing += template1.read() % ("entries/"+str(k), k, v)
-                            data = template.read() % ('OurBoardTitle', firstThing) 
+                            data = template.read() % ('OurBoard', firstThing) 
                             entries += data
 
                     with open('server/board_frontpage_footer_template.html', 'r') as template:
-                        #data = template.read() % ("erifor@student.chalmers.se/cjesper@student.chalmers.se") 
-                        data = template.read() % ("Leader: " + self.server.leader) 
+                        data = template.read() % ("erifor@student.chalmers.se, cjesper@student.chalmers.se", "LEADER " + self.server.leader + " with number " + str(self.server.random_vessel_nr)) 
                         entries += data
                         
                     self.wfile.write(entries)
@@ -322,25 +314,23 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                     key = postData['key'][0]
                     value = postData['value'][0]
                     self.server.modify_value_in_store(int(key), value) 
-                '''
-                    Dict of Random integers and IP's received from previous node
-                '''
+                
                 if self.path == '/elect':
                     postData = self.parse_POST_request()
                     value = postData['value'][0]
                     #Parses the dict-like string to a dict
                     valueDict = ast.literal_eval(value)
+                    self.server.sendDicts = valueDict
+
+                    #Check if we have received our own IP
+                    found = False
+                    vesselIP = "10.1.0."+str(self.server.vessel_id)
+                    for key in valueDict.keys():
+                        if valueDict[key] == vesselIP:
+                            found = True
+                            break
                     
-                    #The first neighbor we try with
-                    for key, value in valueDict.iteritems():
-                        self.server.sendDicts[key] = value
-                    
-                    if (len(valueDict) != len(self.server.vessels)):
-                        thread = Thread(target=self.server.contact_vessel , args=(self.server.nextNeighbor , "/elect", 'POST', "key", self.server.sendDicts) )
-                        thread.daemon = True
-                        thread.start()
-                    
-                    if len(self.server.sendDicts) == len(self.server.vessels):
+                    if found:
                         for key in self.server.sendDicts.keys():
                             if not key in self.server.leaderCandidates:
                                 self.server.leaderCandidates.append(key)
@@ -349,10 +339,16 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                         #At first we select the first value in the list
                         self.server.sortedCandidates= sorted(self.server.leaderCandidates, reverse=True)
                         self.server.leader = self.server.sendDicts[self.server.sortedCandidates[0]]
-                        print "We have selected first leader: " + self.server.leader
                         self.server.leaderElected = True
-                        print self.server.leaderElected
+                        print "Leader elected " + self.server.leader
+                    else:
+                        print "Did not find myself in " + str(valueDict)
+                        self.server.addSelf()
 
+                        thread = Thread(target=self.server.contact_vessel , args=(self.server.nextNeighbor , "/elect", 'POST', "key", self.server.sendDicts) )
+                        thread.daemon = True
+                        thread.start()
+                   
                 if self.path == '/leaderReceiveAdd': 
                     postData = self.parse_POST_request()
                     value = postData['value'][0]
@@ -384,8 +380,8 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 if self.path == '/newLeader':
                     postData = self.parse_POST_request()
                     value = postData['value'][0]
-                    print value
                     self.server.leader = value
+                    print "New leader: " + self.server.leader
 
 #------------------------------------------------------------------------------------------------------
 # POST Logic
