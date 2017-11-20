@@ -68,15 +68,22 @@ class BlackboardServer(HTTPServer):
         self.store[self.current_key] = value
         self.current_key = self.current_key + 1
 #------------------------------------------------------------------------------------------------------
+
+    #Check if a value exists in store - used for delete and modify
+    def is_in_store(self, key):
+        return key in self.store
+
 	# We modify a value received in the store
     def modify_value_in_store(self,key,value):
         # we modify a value in the store if it exists
-        self.store[key] = value
+        if self.is_in_store:
+            self.store[key] = value
 #------------------------------------------------------------------------------------------------------
 	# We delete a value received from the store
     def delete_value_in_store(self,key):
-            # we delete a value in the store if it exists
-        del self.store[key]
+        # we delete a value in the store if it exists
+        if self.is_in_store:
+            del self.store[key]
         
     def elect(self):
         time.sleep(1)
@@ -356,7 +363,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         value = postData['value'][0]
         self.server.leader = value
         print "New leader: " + self.server.leader
-
+    
     #A vessel adds the value parsed from the POST request to store
     def add_to_store(self):
         postData = self.parse_POST_request()
