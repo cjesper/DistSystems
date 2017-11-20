@@ -56,7 +56,11 @@ class BlackboardServer(HTTPServer):
         self.sendDicts = {} #The dictionary we send during the leader election, containing {random_vessel_nr : vessel_ip}
         self.neighborNumber = self.vessel_id % len(self.vessels) + 1 #See nextNeighbor
         self.nextNeighbor = "10.1.0." + str(self.neighborNumber) #The neighbor we are currently trying to contact
-        self.elect()
+        print "ID is " + str(self.vessel_id)
+        if self.vessel_id == 2:
+            quit() 
+        else:
+            self.elect()
 
 #------------------------------------------------------------------------------------------------------
 	# We add a value received to the store
@@ -121,9 +125,14 @@ class BlackboardServer(HTTPServer):
                 self.neighborNumber = self.neighborNumber % len(self.vessels) +  1
                 self.nextNeighbor = "10.1.0." + str(self.neighborNumber)
                 print "NextNeighbor changed to " + self.nextNeighbor
-                #We have detected a crashed node - we need to inform the other nodes in the network about this
+                print "Resending election message.."
+                #Resend election message
+                self.contact_vessel(self.nextNeighbor, '/elect', 'POST', self.addSelf(), self.sendDicts)
 
-            #Catch if leader fails
+            '''
+                If a node unsuccessfully contacts the leader, it will choose a new leader and inform
+                the other nodes
+            '''
             if vessel_ip == self.leader:
                 #Choose new leader, based on the random value we store in the sortedCandidates-list
                 self.timesFailed = self.timesFailed + 1
@@ -133,7 +142,6 @@ class BlackboardServer(HTTPServer):
                 #Send the request again
                 self.contact_vessel(self.leader, path, action, key, value)
 
-                # we return if we succeeded or not
             return success
 #------------------------------------------------------------------------------------------------------
 	# We send a received value to all the other vessels of the system
