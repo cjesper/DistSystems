@@ -12,7 +12,6 @@ import sys # Retrieve arguments
 import time
 import ast
 import random
-import collections
 from urlparse import parse_qs # Parse POST data
 from httplib import HTTPConnection # Create a HTTP connection, as a client (for POST requests to the other vessels)
 from urllib import urlencode # Encode POST content into the HTTP header
@@ -40,17 +39,28 @@ class BlackboardServer(HTTPServer):
         # We call the super init
 	HTTPServer.__init__(self,server_address, handler)
 	# we create the dictionary of values
-        self.store = {}#{1 : "First message"}
-	self.vessel_id = vessel_id
-        #Backing store used for eventual consistency
-        self.backEndStore = []#{(1, vessel_id) : "First message"}
+        self.store = {1 : "First message"}
 	# We keep a variable of the next id to insert
-	self.current_key = 1
-        self.sequence_number = 1
+	self.current_key = 2
+	# our own ID (IP is 10.1.0.ID)
+	self.vessel_id = vessel_id
 	# The list of other vessels
 	self.vessels = vessel_list
+        self.random_vessel_nr = random.randint(0,15000)
         #Leader Election Info
+        self.leaderElected = False #Used to determine what we should do in case of a timeout
+        self.leader = "No leader."
         self.timesFailed = 0 #Used to determine which neighbor we should try to contact next
+        self.sortedCandidates = []
+        self.leaderCandidates = []
+        self.sendDicts = {} #The dictionary we send during the leader election, containing {random_vessel_nr : vessel_ip}
+        self.neighborNumber = self.vessel_id % len(self.vessels) + 1 #See nextNeighbor
+        self.nextNeighbor = "10.1.0." + str(self.neighborNumber) #The neighbor we are currently trying to contact
+        print "ID is " + str(self.vessel_id)
+        if self.vessel_id == 2:
+            quit() 
+        else:
+            self.elect()
 
 #------------------------------------------------------------------------------------------------------
 	# We add a value received to the store
@@ -58,11 +68,8 @@ class BlackboardServer(HTTPServer):
         self.store[self.current_key] = value
         self.current_key = self.current_key + 1
 #------------------------------------------------------------------------------------------------------
-    def add_value_to_backend_store(self, key, value):
-        self.backEndStore.append((key,value))
-        self.sort_backend_store()
-        
-        #Check if a value exists in store - used for delete and modify
+
+    #Check if a value exists in store - used for delete and modify
     def is_in_store(self, key):
         return key in self.store
 
@@ -77,29 +84,18 @@ class BlackboardServer(HTTPServer):
         # we delete a value in the store if it exists
         if self.is_in_store:
             del self.store[key]
-
-    #Sort the backend store, first on sequence number then on vessel id
-    def sort_backend_store(self):
-        sortedList = sorted(self.backEndStore, key=lambda x: x[0])
-        print sortedList 
-        self.reorder_frontend_list(sortedList)
-
-    #Construct frontend-list
-    def reorder_frontend_list(self, sortedList):
-        tempDict = {}
-        key = 1
-        for value in sortedList:
-            tempDict[key] = value[1] 
-            key += 1
-        print tempDict 
-        print self.store
-        self.store.clear()
-        print "CLEARED"
-        print self.store
-        self.store = tempDict
-        print self.store
-
         
+    def elect(self):
+        time.sleep(1)
+        #neighbor = "10.1.0."+str(self.vessel_id % len(self.vessels) + 1)
+        thread = Thread(target=self.contact_vessel , args=(self.nextNeighbor, "/elect", 'POST', self.addSelf(), self.sendDicts))
+        thread.daemon = True
+        thread.start()
+
+    def addSelf(self):
+        self.sendDicts[self.random_vessel_nr] = "10.1.0." + str(self.vessel_id)
+        return self.random_vessel_nr 
+
 #------------------------------------------------------------------------------------------------------
 # Contact a specific vessel with a set of variables to transmit to it
     def contact_vessel(self, vessel_ip, path, action, key, value):
@@ -132,6 +128,26 @@ class BlackboardServer(HTTPServer):
             print "Error while contacting %s" % vessel_ip
             # printing the error given by Python
             print(e)
+            if not self.leaderElected:
+                self.neighborNumber = self.neighborNumber % len(self.vessels) +  1
+                self.nextNeighbor = "10.1.0." + str(self.neighborNumber)
+                print "NextNeighbor changed to " + self.nextNeighbor
+                print "Resending election message.."
+                #Resend election message
+                self.contact_vessel(self.nextNeighbor, '/elect', 'POST', self.addSelf(), self.sendDicts)
+
+            '''
+                If a node unsuccessfully contacts the leader, it will choose a new leader and inform
+                the other nodes
+            '''
+            if vessel_ip == self.leader:
+                #Choose new leader, based on the random value we store in the sortedCandidates-list
+                self.timesFailed = self.timesFailed + 1
+                self.leader = self.sendDicts[self.sortedCandidates[self.timesFailed % len(self.vessels)]]
+                self.propagate_value_to_vessels('/newLeader', 'POST', 0, self.leader)
+                print "New leader: " + self.leader
+                #Send the request again
+                self.contact_vessel(self.leader, path, action, key, value)
 
             return success
 #------------------------------------------------------------------------------------------------------
@@ -206,7 +222,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 entries += data
 
             with open('server/board_frontpage_footer_template.html', 'r') as template:
-                data = template.read()# % ("erifor@student.chalmers.se, cjesper@student.chalmers.se")  
+                data = template.read() % ("erifor@student.chalmers.se, cjesper@student.chalmers.se", "LEADER " + self.server.leader + " with number " + str(self.server.random_vessel_nr)) 
                 entries += data
                 
             self.wfile.write(entries)
@@ -246,7 +262,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         in the same order for everyone
         '''
         if self.path == '/board':   
-            self.add_to_store(True) 
+            self.entry_to_leader()
         '''
         A POST containing /entries indicate that the user wants to remove
         or modify that element of the list. We find out which action is to
@@ -255,37 +271,104 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         from all vessels and propagate them in the same order for everyone.
         '''
         if '/entries' in self.path:
-            print "Del or mod" 
-
+            self.del_or_mod_to_leader()
         '''
         These paths are used for when values are propagated from the leader 
         to a vessel that is not the leader. Depending on which of the paths
         receive a POST, the appropriate function will be called.
         '''
         if self.path == '/propagateAdd':
-            self.add_to_store(False)
+            self.add_to_store()
         
         if self.path == '/propagateDel':
             self.delete_from_store()
             
         if self.path == '/propagateMod':
             self.modify_in_store()
+        
+        '''
+        These paths are used for when values are propagated to the leader.
+        The leader calls the appropriate function and the propagates a call
+        to the corresponding action to all other vessels
+        '''
+        if self.path == '/leaderAdd': 
+            self.leader_add()
 
-    #A vessel adds the value parsed from the POST request to store
-    def add_to_store(self, propagate):
+        if self.path == '/leaderMod': 
+            self.leader_modify()
+        
+        if self.path == '/leaderDel': 
+            self.leader_delete()
+
+        '''
+        If path is /newLeader, a new leader has to be set because a 
+        vessel trying to contact the current leader got a connection error. 
+        The new_leader function is called and a new leader is then set.
+        '''
+        if self.path == '/newLeader':
+            self.new_leader()
+
+        '''
+        This is the first action that is called after a vessel has initiated.
+        Every vessel in the network calls for leader election in order
+        to agree on the same vessel being the leader
+        '''
+        if self.path == '/elect':
+            self.leader_election()
+
+    #Parse the POST request, determine if it is a delete or modify. Then propagate request to the leader
+    def del_or_mod_to_leader(self):
         postData = self.parse_POST_request()
-        if propagate:
-            key = str(self.server.sequence_number) + str(self.server.vessel_id)
-            key = int(key)
-            #key = (self.server.sequence_number, self.server.vessel_id)
-            value = postData['entry'][0]
-            self.thread_propagate_vessels('/propagateAdd', 'POST', key, value)
-            self.server.sequence_number += 1
+        value = postData['entry'][0]
+        delOrModify = postData['delete'][0]
+
+        #If we want to delete : Delete the entry in our store, then propagate to other vessels
+        if delOrModify == '1':
+            self.thread_contact_vessel(self.server.leader, "/leaderDel", 'POST', self.path[9:], value)
+        #If we want to modify
         else:
-            key = int(postData['key'][0])
-            value = postData['value'][0]
-        self.server.add_value_to_backend_store(key, value)
-        #self.server.add_value_to_store(value)
+            self.thread_contact_vessel(self.server.leader, "/leaderMod", 'POST', self.path[9:], value)
+
+    #Parse the POST request and propagate the entry to the leader
+    def entry_to_leader(self):
+        postData = self.parse_POST_request()
+        value = postData['entry'][0]
+        self.thread_contact_vessel(self.server.leader , "/leaderAdd", 'POST', 0, value)
+
+    #The leader parses the POST request, adds the value to store and propagates the value to the other vessels
+    def leader_add(self):
+        postData = self.parse_POST_request()
+        value = postData['value'][0]
+        self.server.add_value_to_store(value) 
+        self.thread_propagate_vessels("/propagateAdd", 'POST', 0, value)
+
+    #The leader parses the POST request, modifies tha value associated with the key and then propagates the modify to the other vessels
+    def leader_modify(self):
+        postData = self.parse_POST_request()
+        key = postData['key'][0]
+        value = postData['value'][0]
+        self.server.modify_value_in_store(int(key), value)
+        self.thread_propagate_vessels("/propagateMod", 'POST', key, value)
+
+    #The leader parses the POST request, deletes the value with key 'key' in store and then propagates the delete to the other vessels
+    def leader_delete(self):
+        postData = self.parse_POST_request()
+        key = postData['key'][0]
+        self.server.delete_value_in_store(int(key))
+        self.thread_propagate_vessels("/propagateDel", 'POST', key, '0')
+
+    #Sets the leader to be the new value parsed from the POST request
+    def new_leader(self):
+        postData = self.parse_POST_request()
+        value = postData['value'][0]
+        self.server.leader = value
+        print "New leader: " + self.server.leader
+    
+    #A vessel adds the value parsed from the POST request to store
+    def add_to_store(self):
+        postData = self.parse_POST_request()
+        value = postData['value'][0]
+        self.server.add_value_to_store(value)
 
     #A vessel deletes the value corresponding to the key parsed from the POST request to store
     def delete_from_store(self) :
@@ -312,7 +395,46 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         thread.daemon = True
         thread.start()
 
-  
+    '''
+    Receives a dictionary from the previous neighboring vessel in the leader election ring.
+    Passes the dictionary to the next neighboring vessel as long as the dictionary received is not containing
+    the vessel itself. When a dictionary is received containing the vessel itself, the value that the vessel added 
+    before the first round has gone full circle. A leader is then elected using the key with highest value
+    in the dictionary. 
+    '''
+    def leader_election(self):
+        postData = self.parse_POST_request()
+        value = postData['value'][0]
+        #Parses the dict-like string to a dict
+        valueDict = ast.literal_eval(value)
+        self.server.sendDicts = valueDict
+
+        #Check if we can find ourselves in the dictionary
+        foundMe = False
+        myIP = "10.1.0."+str(self.server.vessel_id)
+        for key in valueDict.keys():
+            if valueDict[key] == myIP:
+                foundMe = True
+                break
+        
+        #Found myself. My first sent value has gone full circle.
+        if foundMe:
+            for key in self.server.sendDicts.keys():
+                if not key in self.server.leaderCandidates:
+                    self.server.leaderCandidates.append(key)
+            
+            #Now, sort the candidates based on their key (the random value they generate)
+            #At first we select the first value in the list
+            self.server.sortedCandidates= sorted(self.server.leaderCandidates, reverse=True)
+            self.server.leader = self.server.sendDicts[self.server.sortedCandidates[0]]
+            self.server.leaderElected = True
+            print "Leader elected: " + self.server.leader
+
+        #I was not in the dict. I add myself and propagate to my neighbor
+        else:
+            self.server.addSelf()
+            self.thread_contact_vessel(self.server.nextNeighbor , "/elect", 'POST', "key", self.server.sendDicts)
+
 #------------------------------------------------------------------------------------------------------
 # POST Logic
 #------------------------------------------------------------------------------------------------------
