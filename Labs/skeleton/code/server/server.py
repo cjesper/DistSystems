@@ -12,12 +12,14 @@ import sys # Retrieve arguments
 import time
 import ast
 import random
+import threading
 import collections
 from urlparse import parse_qs # Parse POST data
 from httplib import HTTPConnection # Create a HTTP connection, as a client (for POST requests to the other vessels)
 from urllib import urlencode # Encode POST content into the HTTP header
 from codecs import open # Open a file
 from threading import  Thread # Thread Management
+
 #------------------------------------------------------------------------------------------------------
 
 # Global variables for HTML templates
@@ -44,13 +46,17 @@ class BlackboardServer(HTTPServer):
 	self.vessel_id = vessel_id
         #Backing store used for eventual consistency
         self.backEndStore = []#{(1, vessel_id) : "First message"}
+        #Links keys in frontend to backend (frontkey, backkey)
+        self.frontKeyToBackKey = []
 	# We keep a variable of the next id to insert
 	self.current_key = 1
         self.sequence_number = 1
 	# The list of other vessels
 	self.vessels = vessel_list
+        self.deleteQueue = []
         #Leader Election Info
         self.timesFailed = 0 #Used to determine which neighbor we should try to contact next
+        self.initialize_delayed_update()
 
 #------------------------------------------------------------------------------------------------------
 	# We add a value received to the store
@@ -60,11 +66,17 @@ class BlackboardServer(HTTPServer):
 #------------------------------------------------------------------------------------------------------
     def add_value_to_backend_store(self, key, value):
         self.backEndStore.append((key,value))
-        self.sort_backend_store()
         
-        #Check if a value exists in store - used for delete and modify
+    #Check if a value exists in store - used for delete and modify
     def is_in_store(self, key):
         return key in self.store
+
+    def is_in_backend_store(self, key):
+        for val in self.backEndStore:
+            if str(val[0]) == str(key):
+                return True
+        
+        return False
 
 	# We modify a value received in the store
     def modify_value_in_store(self,key,value):
@@ -75,14 +87,31 @@ class BlackboardServer(HTTPServer):
 	# We delete a value received from the store
     def delete_value_in_store(self,key):
         # we delete a value in the store if it exists
-        if self.is_in_store:
+        if self.is_in_store(key):
             del self.store[key]
+
+    def delete_value_in_backendStore(self,key):
+        # we delete a value in the store if it exists
+        print "Trying to delete " + str(key)
+        for val in self.backEndStore:
+            print val
+            if str(val[0]) == str(key):
+                print "found! " + str(val[0])
+                toDel = self.backEndStore.index(val)
+                del self.backEndStore[toDel]
 
     #Sort the backend store, first on sequence number then on vessel id
     def sort_backend_store(self):
         sortedList = sorted(self.backEndStore, key=lambda x: x[0])
         print sortedList 
         self.reorder_frontend_list(sortedList)
+        self.frontKeyToBackKey = []
+        key = 1
+        for value in sortedList:
+            self.frontKeyToBackKey.append((key , value[0]))
+            key += 1
+        print "Front to back: "
+        print self.frontKeyToBackKey
 
     #Construct frontend-list
     def reorder_frontend_list(self, sortedList):
@@ -91,15 +120,35 @@ class BlackboardServer(HTTPServer):
         for value in sortedList:
             tempDict[key] = value[1] 
             key += 1
-        print tempDict 
-        print self.store
         self.store.clear()
-        print "CLEARED"
-        print self.store
         self.store = tempDict
         print self.store
 
-        
+    #Find corresponding backend key from frontend
+    def convert_frontend_to_backend_key (self, key):
+        print ("From key " + str(key)  + " i found:")
+        for value in self.frontKeyToBackKey:
+            if value[0] == key:
+                print "Frontkey " + str(key) + " had back " + str(value[1])
+                return value[1] 
+
+    def initialize_delayed_update(self):
+        thread = Thread(target=self.delayedUpdate)
+        thread.daemon = True
+        thread.start()
+
+    def delayedUpdate (self):
+        time.sleep(10);
+        self.sort_backend_store()
+        for element in self.deleteQueue:
+            self.delete_value_in_backendStore(element)
+            print "Deleted " + str(element)
+        self.deleteQueue = []
+        thread = Thread(target=self.delayedUpdate)
+        thread.daemon = True
+        thread.start()
+
+           
 #------------------------------------------------------------------------------------------------------
 # Contact a specific vessel with a set of variables to transmit to it
     def contact_vessel(self, vessel_ip, path, action, key, value):
@@ -256,6 +305,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         '''
         if '/entries' in self.path:
             print "Del or mod" 
+            self.delete_from_store(True)
 
         '''
         These paths are used for when values are propagated from the leader 
@@ -266,7 +316,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             self.add_to_store(False)
         
         if self.path == '/propagateDel':
-            self.delete_from_store()
+            self.delete_from_store(False)
             
         if self.path == '/propagateMod':
             self.modify_in_store()
@@ -285,13 +335,30 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             key = int(postData['key'][0])
             value = postData['value'][0]
         self.server.add_value_to_backend_store(key, value)
-        #self.server.add_value_to_store(value)
+        self.server.add_value_to_store(value)
+        self.server.frontKeyToBackKey.append((len(self.server.frontKeyToBackKey)+1 , key))
 
     #A vessel deletes the value corresponding to the key parsed from the POST request to store
-    def delete_from_store(self) :
+    def delete_from_store(self, propagate) :
         postData = self.parse_POST_request()
-        key = postData['key'][0]
-        self.server.delete_value_in_store(int(key)) 
+        print postData
+        if propagate:
+            key = int(self.path[9:])
+            backendKey = self.server.convert_frontend_to_backend_key(int(key))
+            self.thread_propagate_vessels('/propagateDel', 'POST', backendKey, 0)
+            self.server.delete_value_in_store(int(key)) 
+            self.server.delete_value_in_backendStore(backendKey)
+        else:
+            key = int(postData['key'][0])
+            #self.server.delete_value_in_store(int(key))
+            print "Got propagated key " + str(key)
+            if self.server.is_in_backend_store(int(key)):
+                print "Trying to del prop.."
+                print "Backend key for me: "
+                self.server.delete_value_in_backendStore(key)
+            else:
+                self.server.deleteQueue.append(key)
+                print "Could not find " + str(key) + " in my store. Added to deletequeue."
 
     #A vessel sets the value parsed from the POST request corresponding to the key parsed from the POST request to store
     def modify_in_store(self):
