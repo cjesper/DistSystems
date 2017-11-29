@@ -42,7 +42,7 @@ class BlackboardServer(HTTPServer):
         # We call the super init
 	HTTPServer.__init__(self,server_address, handler)
 	# we create the dictionary of values
-        self.store = {}#{1 : "First message"}
+        self.store = {}
 	self.vessel_id = vessel_id
         #Backing store used for eventual consistency
         self.backEndStore = []#{(1, vessel_id) : "First message"}
@@ -53,9 +53,26 @@ class BlackboardServer(HTTPServer):
         self.sequence_number = 1
 	# The list of other vessels
 	self.vessels = vessel_list
+        #Queue of pending deletes
         self.deleteQueue = []
-        #Leader Election Info
+        #Queue of pending modifies
+        self.modifyQueue = []
         self.timesFailed = 0 #Used to determine which neighbor we should try to contact next
+        self.stabilizedList = {}
+        #For 6 nodes
+        for i in xrange(4, 241, 4):
+            self.stabilizedList[2*i-7] ="Hello"+str(i/4)
+            self.stabilizedList[2*i-6] ="Hello"+str(i/4)
+            self.stabilizedList[2*i-5] ="Hello"+str(i/4)
+            self.stabilizedList[2*i-4] ="Hello"+str(i/4)
+            self.stabilizedList[2*i-3] ="Hello"+str(i/4)
+            self.stabilizedList[2*i-2] ="Hello"+str(i/4)
+            self.stabilizedList[2*i-1] ="Hello"+str(i/4)
+            self.stabilizedList[2*i] ="Hello"+str(i/4)
+        #Initialize time counter
+        print self.stabilizedList
+        self.start = 0;
+        self.initialized = False
         self.initialize_delayed_update()
 
 #------------------------------------------------------------------------------------------------------
@@ -100,18 +117,25 @@ class BlackboardServer(HTTPServer):
                 toDel = self.backEndStore.index(val)
                 del self.backEndStore[toDel]
 
+    def modify_value_in_backendStore(self, key, value):
+        print "Modifying " + str(key)
+        for val in self.backEndStore:
+            print val
+            if str(val[0]) == str(key):
+                tempVal = (val[0], value)
+                self.backEndStore.remove(val)
+                self.backEndStore.append(tempVal)
+                print "Modded to "
+
     #Sort the backend store, first on sequence number then on vessel id
     def sort_backend_store(self):
         sortedList = sorted(self.backEndStore, key=lambda x: x[0])
-        print sortedList 
         self.reorder_frontend_list(sortedList)
         self.frontKeyToBackKey = []
         key = 1
         for value in sortedList:
             self.frontKeyToBackKey.append((key , value[0]))
             key += 1
-        print "Front to back: "
-        print self.frontKeyToBackKey
 
     #Construct frontend-list
     def reorder_frontend_list(self, sortedList):
@@ -122,14 +146,12 @@ class BlackboardServer(HTTPServer):
             key += 1
         self.store.clear()
         self.store = tempDict
-        print self.store
+        self.compareDicts()
 
     #Find corresponding backend key from frontend
     def convert_frontend_to_backend_key (self, key):
-        print ("From key " + str(key)  + " i found:")
         for value in self.frontKeyToBackKey:
             if value[0] == key:
-                print "Frontkey " + str(key) + " had back " + str(value[1])
                 return value[1] 
 
     def initialize_delayed_update(self):
@@ -141,12 +163,30 @@ class BlackboardServer(HTTPServer):
         time.sleep(10);
         self.sort_backend_store()
         for element in self.deleteQueue:
-            self.delete_value_in_backendStore(element)
-            print "Deleted " + str(element)
-        self.deleteQueue = []
+            if self.is_in_backend_store(element):
+                self.delete_value_in_backendStore(element)
+                print "Deleted " + str(element)
+                self.deleteQueue.remove(element)
+
+        for element in self.modifyQueue:
+            if self.is_in_backend_store(element[0]):
+                self.modify_value_in_backendStore(element[0], element[1])
+                print "Modified" + str(element)
+                self.modifyQueue.remove(element)
+        
         thread = Thread(target=self.delayedUpdate)
         thread.daemon = True
         thread.start()
+
+    def compareDicts(self):
+        print "COMPARING"
+        if self.stabilizedList == self.store:
+            print "LISTS ARE IDENTICAL!!!!!!"
+            end = time.time()
+            #Print time difference
+            print str((end - self.start)) + " seconds."
+        else:
+            print "LISTS ARE NOT THE SAME"
 
            
 #------------------------------------------------------------------------------------------------------
@@ -287,7 +327,10 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 # Request handling - POST
 #------------------------------------------------------------------------------------------------------
     def do_POST(self):
-        self.set_HTTP_headers(200)	
+        self.set_HTTP_headers(200)  
+        if self.server.initialized == False:
+            self.server.start = time.time()
+            self.server.initialized = True
         '''
         When we get a POST on /board, the user wants to add a new entry.
         This entry is parsed and then sent to the leader so that the 
@@ -304,8 +347,16 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         from all vessels and propagate them in the same order for everyone.
         '''
         if '/entries' in self.path:
-            print "Del or mod" 
-            self.delete_from_store(True)
+            postData = self.parse_POST_request()
+            print postData
+            #key = int(postData['key'][0])
+            if postData['delete'][0] == '1':
+                print "Trying to delete..."
+                self.delete_from_store(True, 0)
+            else:
+                value = postData['entry'][0]
+                print "Trying to modify.."
+                self.modify_in_store(True, 0, value)
 
         '''
         These paths are used for when values are propagated from the leader 
@@ -316,10 +367,15 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             self.add_to_store(False)
         
         if self.path == '/propagateDel':
-            self.delete_from_store(False)
+            postData = self.parse_POST_request()
+            key = int(postData['key'][0])
+            self.delete_from_store(False, key)
             
         if self.path == '/propagateMod':
-            self.modify_in_store()
+            postData = self.parse_POST_request()
+            key = int(postData['key'][0])
+            value = postData['value'][0]
+            self.modify_in_store(False, key, value)
 
     #A vessel adds the value parsed from the POST request to store
     def add_to_store(self, propagate):
@@ -329,8 +385,14 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             key = int(key)
             #key = (self.server.sequence_number, self.server.vessel_id)
             value = postData['entry'][0]
+            #self.server.add_value_to_backend_store(key, value)
+            #self.server.add_value_to_store(value)
             self.thread_propagate_vessels('/propagateAdd', 'POST', key, value)
             self.server.sequence_number += 1
+            #self.server.frontKeyToBackKey.append((len(self.server.frontKeyToBackKey)+1 , key))
+            #thread = Thread(target=self.sleepTest, args=(key, value))
+            #thread.daemon = True
+            #thread.start()
         else:
             key = int(postData['key'][0])
             value = postData['value'][0]
@@ -338,10 +400,13 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         self.server.add_value_to_store(value)
         self.server.frontKeyToBackKey.append((len(self.server.frontKeyToBackKey)+1 , key))
 
+    def sleepTest(self, key, value):
+        time.sleep(10)
+        self.thread_propagate_vessels('/propagateAdd', 'POST', key, value)
+        self.server.sequence_number += 1
+
     #A vessel deletes the value corresponding to the key parsed from the POST request to store
-    def delete_from_store(self, propagate) :
-        postData = self.parse_POST_request()
-        print postData
+    def delete_from_store(self, propagate, key) :
         if propagate:
             key = int(self.path[9:])
             backendKey = self.server.convert_frontend_to_backend_key(int(key))
@@ -349,23 +414,29 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             self.server.delete_value_in_store(int(key)) 
             self.server.delete_value_in_backendStore(backendKey)
         else:
-            key = int(postData['key'][0])
             #self.server.delete_value_in_store(int(key))
-            print "Got propagated key " + str(key)
             if self.server.is_in_backend_store(int(key)):
-                print "Trying to del prop.."
-                print "Backend key for me: "
                 self.server.delete_value_in_backendStore(key)
             else:
                 self.server.deleteQueue.append(key)
-                print "Could not find " + str(key) + " in my store. Added to deletequeue."
 
     #A vessel sets the value parsed from the POST request corresponding to the key parsed from the POST request to store
-    def modify_in_store(self):
-        postData = self.parse_POST_request()
-        key = postData['key'][0]
-        value = postData['value'][0]
-        self.server.modify_value_in_store(int(key), value) 
+    def modify_in_store(self, propagate, key, value):
+        if propagate:
+            key = int(self.path[9:])
+            backendKey = self.server.convert_frontend_to_backend_key(int(key))
+            print "I AM HERE"
+            print "my value is " + str(value)
+            self.thread_propagate_vessels('/propagateMod', 'POST', backendKey, value)
+            self.server.modify_value_in_store(int(key), value) 
+            self.server.modify_value_in_backendStore(backendKey, value)
+        else:
+            print "Got propagated key " + str(key)
+            if self.server.is_in_backend_store(int(key)):
+                self.server.modify_value_in_backendStore(int(key), value)
+            else:
+                self.server.modifyQueue.append((key, value))
+                print "Could not find " + str(key) + " in my store. Added to modqueue."
 
     #This function creates a thread that contacts a specific vessel with the appropriate arguments
     def thread_contact_vessel(self, vessel_ip, path, action, key, value):

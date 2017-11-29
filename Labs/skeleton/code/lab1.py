@@ -79,14 +79,14 @@ class Lab1():
 	# Open an xterm and launch a specific command
 	def startServer(self, server, nbOfServers):
 		# Call mininet.term.makeTerm
-		makeTerm(node=server, cmd="python server/server.py %s %d" % (server.IP().replace("10.1.0.",""), nbOfServers) )
+		makeTerm(node=server, cmd="python server/serverOld.py %s %d" % (server.IP().replace("10.1.0.",""), nbOfServers) )
 #------------------------------------------------------------------------------------------------------
 	# run(self)
 	# Run the lab 1
 	def run(self):
 		"Run the lab 1 simulation environment"
 		# local variables
-		nbOfServersPerRegion = 1
+		nbOfServersPerRegion = 2
 		nbOfClientsPerRegion = 2
 		nbOfRegions = 2
 		localJitter = 10 # ms, the evolution of the time between two consecutive packets

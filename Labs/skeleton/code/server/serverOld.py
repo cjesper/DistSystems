@@ -57,6 +57,20 @@ class BlackboardServer(HTTPServer):
                 self.sendDicts = {} #The dictionary we send during the leader election, containing {RandomInt : vessel_ip}
                 self.neighborNumber = self.vessel_id % len(self.vessels) + 1 #See nextNeighbor
                 self.nextNeighbor = "10.1.0." + str(self.neighborNumber) #The neighbor we are currently trying to contact
+                self.start = 0
+                self.initialized = False 
+                self.stabilizedList = {}
+                #For 6 nodes
+                for i in xrange(4, 241, 4):
+                    self.stabilizedList[2*i-7] ="Hello"+str(i/4)
+                    self.stabilizedList[2*i-6] ="Hello"+str(i/4)
+                    self.stabilizedList[2*i-5] ="Hello"+str(i/4)
+                    self.stabilizedList[2*i-4] ="Hello"+str(i/4)
+                    self.stabilizedList[2*i-3] ="Hello"+str(i/4)
+                    self.stabilizedList[2*i-2] ="Hello"+str(i/4)
+                    self.stabilizedList[2*i-1] ="Hello"+str(i/4)
+                    self.stabilizedList[2*i] ="Hello"+str(i/4)
+                #Initialize time counter
                 self.elect()
 
 #------------------------------------------------------------------------------------------------------
@@ -88,6 +102,16 @@ class BlackboardServer(HTTPServer):
             self.sendDicts[self.random_vessel_nr] = "10.1.0." + str(self.vessel_id)
             print "Initialized to " + str(self.sendDicts)
             return self.random_vessel_nr 
+
+        def compareDicts(self):
+            print "COMPARING"
+            if (16*60) == len(self.store):
+                print "LISTS ARE THE SAME"
+                end = time.time()
+                print (end - self.start)
+            else:
+                print "LISTS ARE NOT THE SAME"
+                print len(self.store)
 
 #------------------------------------------------------------------------------------------------------
 # Contact a specific vessel with a set of variables to transmit to it
@@ -245,6 +269,11 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 #------------------------------------------------------------------------------------------------------
 	def do_POST(self):
 	        self.set_HTTP_headers(200)	
+                if self.server.initialized == False:
+                    self.server.start = time.time()
+                    self.server.initialized = True 
+
+                self.server.compareDicts()
                 '''
                     When we get a POST on /board, the user wants to add a new entry.
                     We parse the request to get the new value, then add it to our
