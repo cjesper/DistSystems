@@ -180,13 +180,14 @@ class BlackboardServer(HTTPServer):
 
     def compareDicts(self):
         print "COMPARING"
-        if self.stabilizedList == self.store:
+        if 1920 == len(self.store):
             print "LISTS ARE IDENTICAL!!!!!!"
             end = time.time()
             #Print time difference
             print str((end - self.start)) + " seconds."
         else:
             print "LISTS ARE NOT THE SAME"
+            print len(self.store)
 
            
 #------------------------------------------------------------------------------------------------------

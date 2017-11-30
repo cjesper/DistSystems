@@ -71,6 +71,7 @@ class BlackboardServer(HTTPServer):
                     self.stabilizedList[2*i-1] ="Hello"+str(i/4)
                     self.stabilizedList[2*i] ="Hello"+str(i/4)
                 #Initialize time counter
+                time.sleep(5)
                 self.elect()
 
 #------------------------------------------------------------------------------------------------------
@@ -105,7 +106,7 @@ class BlackboardServer(HTTPServer):
 
         def compareDicts(self):
             print "COMPARING"
-            if (16*60) == len(self.store):
+            if (32*60) == len(self.store):
                 print "LISTS ARE THE SAME"
                 end = time.time()
                 print (end - self.start)

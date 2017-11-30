@@ -43,7 +43,7 @@ class Lab1Topology( Topo ):
 		# For each region
 		for regionId in range(0, nbOfRegions):
 			# we create a regional switch
-			switches.append(self.addSwitch("regSwitch%d" % regionId))
+			switches.append(self.addSwitch("r%d" % regionId))
 			# we add servers/vessels in that region, with a fixed IP
 			for serverId in range(0, nbOfServersPerRegion):
 				# serverId is a regional Id, we want a global one
@@ -86,7 +86,7 @@ class Lab1():
 	def run(self):
 		"Run the lab 1 simulation environment"
 		# local variables
-		nbOfServersPerRegion = 2
+		nbOfServersPerRegion = 16
 		nbOfClientsPerRegion = 2
 		nbOfRegions = 2
 		localJitter = 10 # ms, the evolution of the time between two consecutive packets
@@ -116,8 +116,13 @@ class Lab1():
 		# Once the CLI is closed (with exit), we can stop the simulation
 		print "Stopping the simulation NOW!"
 		simulation.stop()
+                for process_list in popens:
+                    for process in process_list:
+                        process.kill()
 		# We close the xterms (mininet.term.cleanUpScreens)
 		cleanUpScreens()
+
+                #pkill -9 -f mnexec.*socat
 #------------------------------------------------------------------------------------------------------
 
 
