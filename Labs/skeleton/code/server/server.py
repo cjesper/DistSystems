@@ -59,18 +59,7 @@ class BlackboardServer(HTTPServer):
         self.modifyQueue = []
         self.timesFailed = 0 #Used to determine which neighbor we should try to contact next
         self.stabilizedList = {}
-        #For 6 nodes
-        for i in xrange(4, 241, 4):
-            self.stabilizedList[2*i-7] ="Hello"+str(i/4)
-            self.stabilizedList[2*i-6] ="Hello"+str(i/4)
-            self.stabilizedList[2*i-5] ="Hello"+str(i/4)
-            self.stabilizedList[2*i-4] ="Hello"+str(i/4)
-            self.stabilizedList[2*i-3] ="Hello"+str(i/4)
-            self.stabilizedList[2*i-2] ="Hello"+str(i/4)
-            self.stabilizedList[2*i-1] ="Hello"+str(i/4)
-            self.stabilizedList[2*i] ="Hello"+str(i/4)
         #Initialize time counter
-        print self.stabilizedList
         self.start = 0;
         self.initialized = False
         self.initialize_delayed_update()
@@ -81,13 +70,21 @@ class BlackboardServer(HTTPServer):
         self.store[self.current_key] = value
         self.current_key = self.current_key + 1
 #------------------------------------------------------------------------------------------------------
+    """
+        Append a unique key with associated value to backend store
+    """
     def add_value_to_backend_store(self, key, value):
         self.backEndStore.append((key,value))
         
-    #Check if a value exists in store - used for delete and modify
+    """
+        Check if value exists in the frontend store
+    """
     def is_in_store(self, key):
         return key in self.store
 
+    """
+        Check if a value exists in the backend store
+    """
     def is_in_backend_store(self, key):
         for val in self.backEndStore:
             if str(val[0]) == str(key):
@@ -95,18 +92,17 @@ class BlackboardServer(HTTPServer):
         
         return False
 
-	# We modify a value received in the store
     def modify_value_in_store(self,key,value):
         # we modify a value in the store if it exists
         if self.is_in_store:
             self.store[key] = value
 #------------------------------------------------------------------------------------------------------
-	# We delete a value received from the store
     def delete_value_in_store(self,key):
         # we delete a value in the store if it exists
         if self.is_in_store(key):
             del self.store[key]
 
+    #TODO
     def delete_value_in_backendStore(self,key):
         # we delete a value in the store if it exists
         print "Trying to delete " + str(key)
@@ -116,7 +112,12 @@ class BlackboardServer(HTTPServer):
                 print "found! " + str(val[0])
                 toDel = self.backEndStore.index(val)
                 del self.backEndStore[toDel]
-
+    
+    """
+        Modify a value in the backend store by creating 
+        a temporary copy of it and then changing the 
+        second tuple value.
+    """
     def modify_value_in_backendStore(self, key, value):
         print "Modifying " + str(key)
         for val in self.backEndStore:
@@ -127,7 +128,10 @@ class BlackboardServer(HTTPServer):
                 self.backEndStore.append(tempVal)
                 print "Modded to "
 
-    #Sort the backend store, first on sequence number then on vessel id
+    """
+        Sort the backend store - first on sequence number, then on
+        the IP of the vessel that sent it.
+    """
     def sort_backend_store(self):
         sortedList = sorted(self.backEndStore, key=lambda x: x[0])
         self.reorder_frontend_list(sortedList)
@@ -137,7 +141,10 @@ class BlackboardServer(HTTPServer):
             self.frontKeyToBackKey.append((key , value[0]))
             key += 1
 
-    #Construct frontend-list
+    """
+        After we sort the backend store, we reorder the one displayed
+        in frontend based on it
+    """
     def reorder_frontend_list(self, sortedList):
         tempDict = {}
         key = 1
@@ -148,17 +155,29 @@ class BlackboardServer(HTTPServer):
         self.store = tempDict
         self.compareDicts()
 
-    #Find corresponding backend key from frontend
+    """
+        Get the unique backend key associated with a frontend
+        key
+    """
     def convert_frontend_to_backend_key (self, key):
         for value in self.frontKeyToBackKey:
             if value[0] == key:
                 return value[1] 
+
+    #---------------------------------------------------------------
 
     def initialize_delayed_update(self):
         thread = Thread(target=self.delayedUpdate)
         thread.daemon = True
         thread.start()
 
+    """
+        Sort and reorder the store every 10 seconds.
+        In addition, we execute queued deletes and 
+        modifies.
+    """
+
+    #TODO
     def delayedUpdate (self):
         time.sleep(10);
         self.sort_backend_store()
@@ -177,17 +196,19 @@ class BlackboardServer(HTTPServer):
         thread = Thread(target=self.delayedUpdate)
         thread.daemon = True
         thread.start()
-
+    
+    """
+        Used for testing
+    """
     def compareDicts(self):
         print "COMPARING"
-        if 1920 == len(self.store):
+        if (64*60) <= len(self.store):
             print "LISTS ARE IDENTICAL!!!!!!"
             end = time.time()
             #Print time difference
             print str((end - self.start)) + " seconds."
         else:
-            print "LISTS ARE NOT THE SAME"
-            print len(self.store)
+            print(len(self.store))
 
            
 #------------------------------------------------------------------------------------------------------
@@ -378,22 +399,20 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             value = postData['value'][0]
             self.modify_in_store(False, key, value)
 
-    #A vessel adds the value parsed from the POST request to store
+    """
+        Add a value to both the frontend and backend store.
+        The backend key is constructed from the current vessels
+        sequence number and it's vessel_id
+        The frontend key is just the current sequence number
+    """
     def add_to_store(self, propagate):
         postData = self.parse_POST_request()
         if propagate:
             key = str(self.server.sequence_number) + str(self.server.vessel_id)
             key = int(key)
-            #key = (self.server.sequence_number, self.server.vessel_id)
             value = postData['entry'][0]
-            #self.server.add_value_to_backend_store(key, value)
-            #self.server.add_value_to_store(value)
             self.thread_propagate_vessels('/propagateAdd', 'POST', key, value)
             self.server.sequence_number += 1
-            #self.server.frontKeyToBackKey.append((len(self.server.frontKeyToBackKey)+1 , key))
-            #thread = Thread(target=self.sleepTest, args=(key, value))
-            #thread.daemon = True
-            #thread.start()
         else:
             key = int(postData['key'][0])
             value = postData['value'][0]
@@ -406,7 +425,13 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         self.thread_propagate_vessels('/propagateAdd', 'POST', key, value)
         self.server.sequence_number += 1
 
-    #A vessel deletes the value corresponding to the key parsed from the POST request to store
+    """
+        Delete a value from store.
+        If the delete is triggered from a /POST to the current board,
+        the key is constructed from the current path (ie. /entries/xy)
+        If the request has been propagated, extract the key from the
+        POSTdata.
+    """
     def delete_from_store(self, propagate, key) :
         if propagate:
             key = int(self.path[9:])
@@ -415,13 +440,15 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             self.server.delete_value_in_store(int(key)) 
             self.server.delete_value_in_backendStore(backendKey)
         else:
-            #self.server.delete_value_in_store(int(key))
             if self.server.is_in_backend_store(int(key)):
                 self.server.delete_value_in_backendStore(key)
             else:
                 self.server.deleteQueue.append(key)
 
-    #A vessel sets the value parsed from the POST request corresponding to the key parsed from the POST request to store
+    """
+        Modify a value in the backend store. On the next reordering, the
+        frontend will be updated by this.
+    """
     def modify_in_store(self, propagate, key, value):
         if propagate:
             key = int(self.path[9:])
