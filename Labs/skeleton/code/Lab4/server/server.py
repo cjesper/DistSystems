@@ -14,6 +14,9 @@ from httplib import HTTPConnection # Create a HTTP connection, as a client (for 
 from urllib import urlencode # Encode POST content into the HTTP header
 from codecs import open # Open a file
 from threading import  Thread # Thread Management
+from byzantine_behavior import *
+import traceback
+import ast
 #------------------------------------------------------------------------------------------------------
 
 # Global variables for HTML templates
@@ -27,9 +30,6 @@ entry_template = ""
 PORT_NUMBER = 80
 #------------------------------------------------------------------------------------------------------
 
-
-
-
 #------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------
 class BlackboardServer(HTTPServer):
@@ -38,28 +38,56 @@ class BlackboardServer(HTTPServer):
 	# We call the super init
 		HTTPServer.__init__(self,server_address, handler)
 		# we create the dictionary of values
-		self.store = {}
+		self.store = {} 
+                self.loyalty = True 
+                self.ownVote = "" 
+                self.voteVector = {}
 		# We keep a variable of the next id to insert
 		self.current_key = -1
 		# our own ID (IP is 10.1.0.ID)
 		self.vessel_id = vessel_id
+                self.tie = True 
+		self.vessel_ip = "10.1.0."+str(vessel_id)
 		# The list of other vessels
 		self.vessels = vessel_list
 #------------------------------------------------------------------------------------------------------
-	# We add a value received to the store
-	def add_value_to_store(self, value):
-		# We add the value to the store
-		pass
-#------------------------------------------------------------------------------------------------------
-	# We modify a value received in the store
-	def modify_value_in_store(self,key,value):
-		# we modify a value in the store if it exists
-		pass
-#------------------------------------------------------------------------------------------------------
-	# We delete a value received from the store
-	def delete_value_in_store(self,key):
-		# we delete a value in the store if it exists
-		pass
+        """
+            Add a vote to our vector.
+        """
+        def add_vote_to_vector(self, ID , vote):
+            self.voteVector[ID] = vote
+
+        def compute_outcome(self):
+            print "Computing outcome..."
+            print self.voteVector
+            #If loyal
+            if self.loyalty == True:
+                attack_votes = 0;
+                retreat_votes= 0;
+                vector_length = len(self.voteVector)
+                if vector_length == 4:
+                    for key in self.voteVector.keys():
+                        if self.voteVector[key] == True:
+                            attack_votes += 1
+                        else:
+                            retreat_votes += 1
+                    
+                    if attack_votes >= retreat_votes:
+                        print "attack"
+                    else:
+                        print "retreat"
+                else:
+                    print "Not enough votes."
+            else: #If byzantine
+                loyalNodes = 3
+                byzantineNodes = 1
+                totalNodes = loyalNodes + byzantineNodes
+                print "I am byzantine so i am waiting."
+                if len(self.voteVector) == 3:
+                    print "TIME TO SNEAKY SNEAKY"
+                    resultVector = compute_byzantine_vote_round1(loyalNodes, totalNodes, True)
+                    print resultVector
+
 #------------------------------------------------------------------------------------------------------
 # Contact a specific vessel with a set of variables to transmit to it
 	def contact_vessel(self, vessel_ip, path, action, key, value):
@@ -73,7 +101,7 @@ class BlackboardServer(HTTPServer):
 		try:
 			# We contact vessel:PORT_NUMBER since we all use the same port
 			# We can set a timeout, after which the connection fails if nothing happened
-			connection = HTTPConnection("%s:%d" % (vessel, PORT_NUMBER), timeout = 30)
+			connection = HTTPConnection("%s:%d" % (vessel_ip, PORT_NUMBER), timeout = 30)
 			# We only use POST to send data (PUT and DELETE not supported)
 			action_type = "POST"
 			# We send the HTTP request
@@ -84,15 +112,16 @@ class BlackboardServer(HTTPServer):
 			status = response.status
 			# If we receive a HTTP 200 - OK
 			if status == 200:
-				success = True
+			    success = True
+                            return success
 		# We catch every possible exceptions
 		except Exception as e:
-			print "Error while contacting %s" % vessel
+			print "Error while contacting %s" % vessel_ip
 			# printing the error given by Python
-			print(e)
+			print str(e)
 
 		# we return if we succeeded or not
-		return success
+                return success
 #------------------------------------------------------------------------------------------------------
 	# We send a received value to all the other vessels of the system
 	def propagate_value_to_vessels(self, path, action, key, value):
@@ -154,12 +183,27 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 		# We set the response status code to 200 (OK)
 		self.set_HTTP_headers(200)
 		# We should do some real HTML here
-		html_reponse = "<html><head><title>Basic Skeleton</title></head><body>This is the basic HTML content when receiving a GET</body></html>"
+	        if self.path =="/":
+                    entries = ""
+
+                    with open('server/vote_frontpage_template.html', 'r') as template:
+                        data = template.read()
+                        entries += data
+                        
+                        self.wfile.write(entries)
+
+                elif self.path == "/vote/result":
+                    entries = ""
+                    self.server.compute_outcome()
+                    with open('server/vote_result_template.html', 'r') as template:
+                        data = template.read()
+                        entries += data
+
+                        self.wfile.write(entries)
 		#In practice, go over the entries list, 
 		#produce the boardcontents part, 
 		#then construct the full page by combining all the parts ...
 		
-		self.wfile.write(html_reponse)
 #------------------------------------------------------------------------------------------------------
 	# we might want some other functions
 #------------------------------------------------------------------------------------------------------
@@ -167,6 +211,8 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 # Request handling - POST
 #------------------------------------------------------------------------------------------------------
 	def do_POST(self):
+
+                self.set_HTTP_headers(200)
 		print("Receiving a POST on %s" % self.path)
 		# Here, we should check which path was requested and call the right logic based on it
 		# We should also parse the data received
@@ -174,7 +220,20 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
 		# If we want to retransmit what we received to the other vessels
 		retransmit = False # Like this, we will just create infinite loops!
-		if retransmit:
+
+                if self.path == '/vote/attack':
+                    self.vote_attack() 
+                if self.path == '/vote/retreat':
+                    self.vote_retreat()
+
+                if self.path == '/vote/byzantine':
+	            self.set_byzantine()
+
+                if self.path == '/propagated':
+                    postData = self.parse_POST_request() 
+                    self.process_vote(postData) 
+
+                if retransmit:
 			# do_POST send the message only when the function finishes
 			# We must then create threads if we want to do some heavy computation
 			# 
@@ -189,7 +248,41 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 #------------------------------------------------------------------------------------------------------
 	# We might want some functions here as well
 #------------------------------------------------------------------------------------------------------
+        def vote_attack(self):
+            self.server.add_vote_to_vector(self.server.vessel_id, True)
+            #Propagate attack order
+            self.thread_propagate_vessels("/propagated", "POST", self.server.vessel_id, True)
+        
+        def vote_retreat(self):
+            self.server.add_vote_to_vector(self.server.vessel_id, False)
+            #Propagate attack order
+            self.thread_propagate_vessels("/propagated", "POST", self.server.vessel_id, False)
 
+        """
+            Sets a nodes loyalty to byzantine
+        """
+        def set_byzantine(self):
+            print str(self.server.vessel_id) + " is now byzantine."
+            self.server.loyalty = False
+
+        def process_vote(self, postData):
+            received_vote = postData['value'][0]
+            sender = postData['key'][0]
+            self.server.add_vote_to_vector(sender, received_vote)
+            #received_vector = ast.literal_eval(postData['key'][0]);
+            #for key in received_vector.keys():
+            #    if key not in self.server.voteVector:
+            #        self.server.add_vote_to_vector(key, received_vector[key])
+
+        def thread_contact_vessel(self, vessel_ip, path, action, key, value):
+            thread = Thread(target=self.server.contact_vessel, args=(vessel_ip, path, action, key, value ))
+            thread.daemon = True
+            thread.start()
+        
+        def thread_propagate_vessels(self, path, action, key, value):
+            thread = Thread(target=self.server.propagate_value_to_vessels , args=(path, action, key, value ))
+            thread.daemon = True
+            thread.start()
 
 
 
