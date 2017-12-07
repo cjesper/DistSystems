@@ -62,10 +62,14 @@ class BlackboardServer(HTTPServer):
         
         def try_compute(self):
             if loyal == False and len(self.voteVector) == 3 and self.compute_first == False:
-
+                self.compute_first = True
+                self.compute_round_one_byzantine()
             elif loyal == True and len(self.voteVector) == 4 and self.compute_second == False:
-
+                self.compute_first = True
+                self.compute_round_two()
             elif loyal == False and self.compute_first == True and self.compute_second == False:
+                self.compute_second= True
+                self.compute_round_two_byzantine()
 
         def compute_outcome(self):
             print "Computing outcome..."
@@ -99,10 +103,30 @@ class BlackboardServer(HTTPServer):
                     print resultVector
 
         def compute_round_one_byzantine(self):
+            print "TIME TO SNEAKY SNEAKY"
+            resultVector = compute_byzantine_vote_round1(loyalNodes, totalNodes, True)
+            print resultVector
+            count = 0
+            for vessel in self.vessels:
+                vote = resultVector[count]
+                if vessel != self.vessel_ip:
+                    self.thread_contact_vessel(vessel, '/propagated', 'POST', self.vessel_id, vote)
+                    count += 1
 
         def compute_round_two(self):
-        
+            voteList = []
+            for key in self.voteVector:
+                voteList.append(self.voteVector[key])
+
+            thread_propagate_vessels('/propagatedVector', 'POST', self.vessel_id, voteList)
+
         def compute_round_two_byzantine(self):
+            result_vectors = compute_byzantine_vote_round2(3, 4, True)
+            for vessel in self.vessels:
+                result_vector = result_vectors[count]
+                if vessel != self.vessel_ip:
+                    self.thread_contact_vessel(vessel, '/propagatedVector', 'POST', self.vessel_id, result_vector)
+                    count += 1
 
 #------------------------------------------------------------------------------------------------------
 # Contact a specific vessel with a set of variables to transmit to it
@@ -295,10 +319,6 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             received_vote = postData['value'][0]
             sender = postData['key'][0]
             self.server.add_vote_to_vector(sender, received_vote)
-            #received_vector = ast.literal_eval(postData['key'][0]);
-            #for key in received_vector.keys():
-            #    if key not in self.server.voteVector:
-            #        self.server.add_vote_to_vector(key, received_vector[key])
 
         def process_vector(self, postData):
 
