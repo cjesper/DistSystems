@@ -43,6 +43,7 @@ class BlackboardServer(HTTPServer):
                 self.ownVote = "" 
                 self.vectorList = []
                 self.voteVector = {}
+                self.result_vector = []
                 self.compute_first = False
                 self.compute_second = False
 		# We keep a variable of the next id to insert
@@ -104,8 +105,28 @@ class BlackboardServer(HTTPServer):
                     count += 1
 
         def compute_resulting_round(self):
-            print "now i am here"
-            pass
+            indexes = []
+            self.result_vector = []
+            print self.vectorList
+            for i in range (0,3):
+                attack = 0
+                retreat = 0
+                for element in self.vectorList:
+                    if element[i] == True or element[i] == 'True':
+                        attack += 1
+                        print "added attack"
+                    else:
+                        print "Element " + str(i) + " is " + str(element[i])
+                        print type(element[i])
+                        retreat +=1
+                        print "added retreat"
+                if attack >= retreat:
+                    self.result_vector.append(True)
+                else:
+                    self.result_vector.append(False)
+
+            print "And the final vector is.."
+            print self.result_vector
 
 #------------------------------------------------------------------------------------------------------
 # Contact a specific vessel with a set of variables to transmit to it
@@ -295,12 +316,12 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             self.server.loyalty = False
 
         def process_vote(self, postData):
-            received_vote = postData['value'][0]
+            received_vote = ast.literal_eval(postData['value'][0])
             sender = postData['key'][0]
             self.server.add_vote_to_vector(sender, received_vote)
 
         def process_vector(self, postData):
-            vector = postData['value'][0]
+            vector = ast.literal_eval(postData['value'][0])
             self.server.vectorList.append(vector)
             print self.server.vectorList
 
