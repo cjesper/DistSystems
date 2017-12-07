@@ -4,7 +4,7 @@
 # server/server.py
 # Input: Node_ID total_number_of_ID
 # Student Group:
-# Student names: John Doe & John Doe
+# Student names: Jesper Carlsson 
 #------------------------------------------------------------------------------------------------------
 # We import various libraries
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler # Socket specifically designed to handle HTTP requests
@@ -41,7 +41,10 @@ class BlackboardServer(HTTPServer):
 		self.store = {} 
                 self.loyalty = True 
                 self.ownVote = "" 
+                self.vectorList = []
                 self.voteVector = {}
+                self.compute_first = False
+                self.compute_second = False
 		# We keep a variable of the next id to insert
 		self.current_key = -1
 		# our own ID (IP is 10.1.0.ID)
@@ -56,6 +59,13 @@ class BlackboardServer(HTTPServer):
         """
         def add_vote_to_vector(self, ID , vote):
             self.voteVector[ID] = vote
+        
+        def try_compute(self):
+            if loyal == False and len(self.voteVector) == 3 and self.compute_first == False:
+
+            elif loyal == True and len(self.voteVector) == 4 and self.compute_second == False:
+
+            elif loyal == False and self.compute_first == True and self.compute_second == False:
 
         def compute_outcome(self):
             print "Computing outcome..."
@@ -87,6 +97,12 @@ class BlackboardServer(HTTPServer):
                     print "TIME TO SNEAKY SNEAKY"
                     resultVector = compute_byzantine_vote_round1(loyalNodes, totalNodes, True)
                     print resultVector
+
+        def compute_round_one_byzantine(self):
+
+        def compute_round_two(self):
+        
+        def compute_round_two_byzantine(self):
 
 #------------------------------------------------------------------------------------------------------
 # Contact a specific vessel with a set of variables to transmit to it
@@ -135,10 +151,15 @@ class BlackboardServer(HTTPServer):
 #------------------------------------------------------------------------------------------------------
 
 
-
-
-
-
+        def thread_contact_vessel(self, vessel_ip, path, action, key, value):
+            thread = Thread(target=self.contact_vessel, args=(vessel_ip, path, action, key, value ))
+            thread.daemon = True
+            thread.start()
+        
+        def thread_propagate_vessels(self, path, action, key, value):
+            thread = Thread(target=self.propagate_value_to_vessels , args=(path, action, key, value ))
+            thread.daemon = True
+            thread.start()
 
 #------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------
@@ -194,7 +215,8 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
                 elif self.path == "/vote/result":
                     entries = ""
-                    self.server.compute_outcome()
+                    
+                    self.server.try_compute()
                     with open('server/vote_result_template.html', 'r') as template:
                         data = template.read()
                         entries += data
@@ -232,6 +254,10 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 if self.path == '/propagated':
                     postData = self.parse_POST_request() 
                     self.process_vote(postData) 
+
+                if self.path == '/propagatedVector':
+                    postData = self.parse_POST_request() 
+                    self.process_vector(postData) 
 
                 if retransmit:
 			# do_POST send the message only when the function finishes
@@ -273,6 +299,8 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             #for key in received_vector.keys():
             #    if key not in self.server.voteVector:
             #        self.server.add_vote_to_vector(key, received_vector[key])
+
+        def process_vector(self, postData):
 
         def thread_contact_vessel(self, vessel_ip, path, action, key, value):
             thread = Thread(target=self.server.contact_vessel, args=(vessel_ip, path, action, key, value ))
