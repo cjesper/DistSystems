@@ -60,7 +60,6 @@ class BlackboardServer(HTTPServer):
         """
         def add_vote_to_vector(self, ID , vote):
             self.voteVector[ID] = vote
-            print self.vessel_id
             print self.voteVector
         
         def try_compute(self):
@@ -107,30 +106,53 @@ class BlackboardServer(HTTPServer):
                     count += 1
 
         def compute_resulting_round(self):
-            indexes = []
-            self.result_vector = []
-            for i in range (0,4):
-                attack = 0
-                retreat = 0
-                for element in self.vectorList:
-                    if element[i] == True or element[i] == 'True':
-                        attack += 1
+            if (self.loyalty == True):
+                voteList = []
+                for key in self.voteVector.keys():
+                    voteList.append(self.voteVector[key])
+                self.vectorList.append(voteList)
+
+                print self.vessel_id
+                print self.vectorList
+                self.result_vector = []
+                for i in range (0,4):
+                    attack = 0
+                    retreat = 0
+                    for element in self.vectorList:
+                        if element[i] == True or element[i] == 'True':
+                            attack += 1
+                        else:
+                            retreat +=1
+
+                    print "No attacks: "  + str(attack)
+                    print "No retreats: " + str(retreat)
+                    # if self.voteVector[self.vessel_id] == True or self.voteVector[self.vessel_id] == 'True':
+                        # attack = attack - 1
+                        # print "Minused attacks!"
+                    # else:
+                        # print "Minused retreats!"
+                        # retreat = retreat - 1
+                    if attack > retreat:
+                        self.result_vector.append(True)
+                    elif retreat > attack:
+                        self.result_vector.append(False)
                     else:
-                        retreat +=1
-                if attack >= retreat:
-                    self.result_vector.append(True)
-                else:
-                    self.result_vector.append(False)
+                        self.result_vector.append("UNKNOWN")
 
-            attacks = 0
-            retreats = 0
-            for vote in self.result_vector:
-                if vote == True or vote == 'True':
-                    attacks += 1
-                else:
-                    retreats += 1
+                attacks = 0
+                retreats = 0
+                for vote in self.result_vector:
+                    if vote == True or vote == 'True':
+                        attacks += 1
+                    elif vote == False or vote == "False":
+                        retreats += 1
+                    else:
+                        pass
 
-            print "I am going to " + "attack!" if attacks >= retreats else "I am going to retreat!"
+                print "I am going to " + "attack!" if attacks >= retreats else "I am going to retreat!"
+                print self.result_vector
+            else:
+                pass
 
 #------------------------------------------------------------------------------------------------------
 # Contact a specific vessel with a set of variables to transmit to it
@@ -321,7 +343,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
         def process_vote(self, postData):
             received_vote = ast.literal_eval(postData['value'][0])
-            sender = postData['key'][0]
+            sender = ast.literal_eval(postData['key'][0])
             self.server.add_vote_to_vector(sender, received_vote)
 
         def process_vector(self, postData):

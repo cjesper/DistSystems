@@ -38,5 +38,6 @@ def compute_byzantine_vote_round2(no_loyal,no_total,on_tie):
       result_vectors.append([on_tie]*no_total)
     else:
       result_vectors.append([not on_tie]*no_total)
+  print result_vectors
   return result_vectors
 
