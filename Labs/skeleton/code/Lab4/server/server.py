@@ -38,6 +38,8 @@ class BlackboardServer(HTTPServer):
 	# We call the super init
 		HTTPServer.__init__(self,server_address, handler)
 		# we create the dictionary of values
+                self.loyalNodes = 2
+                self.totalNodes = 3
 		self.store = {} 
                 self.loyalty = True 
                 self.ownVote = "" 
@@ -63,29 +65,32 @@ class BlackboardServer(HTTPServer):
             print self.voteVector
         
         def try_compute(self):
-            if self.loyalty == False and len(self.voteVector) == 3 and self.compute_first == False:
+            if self.loyalty == False and len(self.voteVector) == self.loyalNodes and self.compute_first == False:
                 self.compute_first = True
                 self.compute_round_one_byzantine()
-            elif self.loyalty == True and len(self.voteVector) == 4 and self.compute_second == False:
+            elif self.loyalty == True and len(self.voteVector) == self.totalNodes and self.compute_second == False:
                 self.compute_second = True
                 self.compute_round_two()
             elif self.loyalty == False and self.compute_first == True and self.compute_second == False:
                 self.compute_second= True
                 self.compute_round_two_byzantine()
 
-            if len(self.vectorList) == 3:
+            if len(self.vectorList) == self.loyalNodes:
                 self.compute_resulting_round()
         
         def compute_round_one_byzantine(self):
             print "TIME TO SNEAKY SNEAKY"
-            resultVector = compute_byzantine_vote_round1(3, 4, True)
+            resultVector = compute_byzantine_vote_round1(self.loyalNodes, self.totalNodes, True)
             print resultVector
             count = 0
+            do = True
             for vessel in self.vessels:
-                if vessel != self.vessel_ip:
+                if vessel != self.vessel_ip and do == True:
                     vote = resultVector[count]
                     self.thread_contact_vessel(vessel, '/propagated', 'POST', self.vessel_id, vote)
                     count += 1
+                    if count == 2:
+                        do = False
 
         def compute_round_two(self):
             voteList = []
@@ -96,14 +101,17 @@ class BlackboardServer(HTTPServer):
             print "honest sent"
 
         def compute_round_two_byzantine(self):
-            result_vectors = compute_byzantine_vote_round2(3, 4, True)
+            result_vectors = compute_byzantine_vote_round2(self.loyalNodes, self.totalNodes, True)
             count = 0
+            do = True 
             for vessel in self.vessels:
-                if vessel != self.vessel_ip:
+                if vessel != self.vessel_ip and do == True:
                     result_vector = result_vectors[count]
                     self.thread_contact_vessel(vessel, '/propagatedVector', 'POST', self.vessel_id, result_vector)
                     print "byzantine sent"
                     count += 1
+                    if count == 2:
+                        do = False
 
         def compute_resulting_round(self):
             if (self.loyalty == True):
@@ -115,7 +123,7 @@ class BlackboardServer(HTTPServer):
                 print self.vessel_id
                 print self.vectorList
                 self.result_vector = []
-                for i in range (0,4):
+                for i in range (0, self.totalNodes):
                     attack = 0
                     retreat = 0
                     for element in self.vectorList:
