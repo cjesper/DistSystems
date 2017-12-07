@@ -60,6 +60,8 @@ class BlackboardServer(HTTPServer):
         """
         def add_vote_to_vector(self, ID , vote):
             self.voteVector[ID] = vote
+            print self.vessel_id
+            print self.voteVector
         
         def try_compute(self):
             if self.loyalty == False and len(self.voteVector) == 3 and self.compute_first == False:
@@ -74,7 +76,7 @@ class BlackboardServer(HTTPServer):
 
             if len(self.vectorList) == 3:
                 self.compute_resulting_round()
-
+        
         def compute_round_one_byzantine(self):
             print "TIME TO SNEAKY SNEAKY"
             resultVector = compute_byzantine_vote_round1(3, 4, True)
@@ -107,26 +109,28 @@ class BlackboardServer(HTTPServer):
         def compute_resulting_round(self):
             indexes = []
             self.result_vector = []
-            print self.vectorList
-            for i in range (0,3):
+            for i in range (0,4):
                 attack = 0
                 retreat = 0
                 for element in self.vectorList:
                     if element[i] == True or element[i] == 'True':
                         attack += 1
-                        print "added attack"
                     else:
-                        print "Element " + str(i) + " is " + str(element[i])
-                        print type(element[i])
                         retreat +=1
-                        print "added retreat"
                 if attack >= retreat:
                     self.result_vector.append(True)
                 else:
                     self.result_vector.append(False)
 
-            print "And the final vector is.."
-            print self.result_vector
+            attacks = 0
+            retreats = 0
+            for vote in self.result_vector:
+                if vote == True or vote == 'True':
+                    attacks += 1
+                else:
+                    retreats += 1
+
+            print "I am going to " + "attack!" if attacks >= retreats else "I am going to retreat!"
 
 #------------------------------------------------------------------------------------------------------
 # Contact a specific vessel with a set of variables to transmit to it
@@ -323,7 +327,6 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         def process_vector(self, postData):
             vector = ast.literal_eval(postData['value'][0])
             self.server.vectorList.append(vector)
-            print self.server.vectorList
 
         def thread_contact_vessel(self, vessel_ip, path, action, key, value):
             thread = Thread(target=self.server.contact_vessel, args=(vessel_ip, path, action, key, value ))
