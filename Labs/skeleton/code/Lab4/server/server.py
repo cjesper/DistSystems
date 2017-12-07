@@ -61,70 +61,40 @@ class BlackboardServer(HTTPServer):
             self.voteVector[ID] = vote
         
         def try_compute(self):
-            if loyal == False and len(self.voteVector) == 3 and self.compute_first == False:
+            if self.loyalty == False and len(self.voteVector) == 3 and self.compute_first == False:
                 self.compute_first = True
                 self.compute_round_one_byzantine()
-            elif loyal == True and len(self.voteVector) == 4 and self.compute_second == False:
+            elif self.loyalty == True and len(self.voteVector) == 4 and self.compute_second == False:
                 self.compute_first = True
                 self.compute_round_two()
-            elif loyal == False and self.compute_first == True and self.compute_second == False:
+            elif self.loyalty == False and self.compute_first == True and self.compute_second == False:
                 self.compute_second= True
                 self.compute_round_two_byzantine()
 
-        def compute_outcome(self):
-            print "Computing outcome..."
-            print self.voteVector
-            #If loyal
-            if self.loyalty == True:
-                attack_votes = 0;
-                retreat_votes= 0;
-                vector_length = len(self.voteVector)
-                if vector_length == 4:
-                    for key in self.voteVector.keys():
-                        if self.voteVector[key] == True:
-                            attack_votes += 1
-                        else:
-                            retreat_votes += 1
-                    
-                    if attack_votes >= retreat_votes:
-                        print "attack"
-                    else:
-                        print "retreat"
-                else:
-                    print "Not enough votes."
-            else: #If byzantine
-                loyalNodes = 3
-                byzantineNodes = 1
-                totalNodes = loyalNodes + byzantineNodes
-                print "I am byzantine so i am waiting."
-                if len(self.voteVector) == 3:
-                    print "TIME TO SNEAKY SNEAKY"
-                    resultVector = compute_byzantine_vote_round1(loyalNodes, totalNodes, True)
-                    print resultVector
-
         def compute_round_one_byzantine(self):
             print "TIME TO SNEAKY SNEAKY"
-            resultVector = compute_byzantine_vote_round1(loyalNodes, totalNodes, True)
+            resultVector = compute_byzantine_vote_round1(3, 4, True)
             print resultVector
             count = 0
             for vessel in self.vessels:
-                vote = resultVector[count]
                 if vessel != self.vessel_ip:
+                    vote = resultVector[count]
                     self.thread_contact_vessel(vessel, '/propagated', 'POST', self.vessel_id, vote)
                     count += 1
 
         def compute_round_two(self):
             voteList = []
-            for key in self.voteVector:
+            for key in self.voteVector.keys():
                 voteList.append(self.voteVector[key])
 
-            thread_propagate_vessels('/propagatedVector', 'POST', self.vessel_id, voteList)
+            self.thread_propagate_vessels('/propagatedVector', 'POST', self.vessel_id, voteList)
 
         def compute_round_two_byzantine(self):
             result_vectors = compute_byzantine_vote_round2(3, 4, True)
+            count = 0
             for vessel in self.vessels:
-                result_vector = result_vectors[count]
                 if vessel != self.vessel_ip:
+                    result_vector = result_vectors[count]
                     self.thread_contact_vessel(vessel, '/propagatedVector', 'POST', self.vessel_id, result_vector)
                     count += 1
 
@@ -321,6 +291,9 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             self.server.add_vote_to_vector(sender, received_vote)
 
         def process_vector(self, postData):
+            vector = postData['value'][0]
+            self.server.vectorList.append(vector)
+            print self.server.vectorList
 
         def thread_contact_vessel(self, vessel_ip, path, action, key, value):
             thread = Thread(target=self.server.contact_vessel, args=(vessel_ip, path, action, key, value ))
