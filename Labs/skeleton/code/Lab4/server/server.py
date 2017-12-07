@@ -65,11 +65,14 @@ class BlackboardServer(HTTPServer):
                 self.compute_first = True
                 self.compute_round_one_byzantine()
             elif self.loyalty == True and len(self.voteVector) == 4 and self.compute_second == False:
-                self.compute_first = True
+                self.compute_second = True
                 self.compute_round_two()
             elif self.loyalty == False and self.compute_first == True and self.compute_second == False:
                 self.compute_second= True
                 self.compute_round_two_byzantine()
+
+            if len(self.vectorList) == 3:
+                self.compute_resulting_round()
 
         def compute_round_one_byzantine(self):
             print "TIME TO SNEAKY SNEAKY"
@@ -88,6 +91,7 @@ class BlackboardServer(HTTPServer):
                 voteList.append(self.voteVector[key])
 
             self.thread_propagate_vessels('/propagatedVector', 'POST', self.vessel_id, voteList)
+            print "honest sent"
 
         def compute_round_two_byzantine(self):
             result_vectors = compute_byzantine_vote_round2(3, 4, True)
@@ -96,7 +100,12 @@ class BlackboardServer(HTTPServer):
                 if vessel != self.vessel_ip:
                     result_vector = result_vectors[count]
                     self.thread_contact_vessel(vessel, '/propagatedVector', 'POST', self.vessel_id, result_vector)
+                    print "byzantine sent"
                     count += 1
+
+        def compute_resulting_round(self):
+            print "now i am here"
+            pass
 
 #------------------------------------------------------------------------------------------------------
 # Contact a specific vessel with a set of variables to transmit to it
