@@ -3,8 +3,8 @@
 # TDA596 Labs - Server Skeleton
 # server/server.py
 # Input: Node_ID total_number_of_ID
-# Student Group:
-# Student names: Jesper Carlsson 
+# Student Group: G2
+# Student names: Jesper Carlsson, Erik Forsström 
 #------------------------------------------------------------------------------------------------------
 # We import various libraries
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler # Socket specifically designed to handle HTTP requests
@@ -37,10 +37,8 @@ class BlackboardServer(HTTPServer):
 	def __init__(self, server_address, handler, node_id, vessel_list):
 	# We call the super init
 		HTTPServer.__init__(self,server_address, handler)
-		# we create the dictionary of values
                 self.loyalNodes = 2
                 self.totalNodes = 3
-		self.store = {} 
                 self.loyalty = True 
                 self.ownVote = "" 
                 self.vectorList = []
@@ -48,8 +46,6 @@ class BlackboardServer(HTTPServer):
                 self.result_vector = []
                 self.compute_first = False
                 self.compute_second = False
-		# We keep a variable of the next id to insert
-		self.current_key = -1
 		# our own ID (IP is 10.1.0.ID)
 		self.vessel_id = vessel_id
                 self.tie = True 
@@ -62,7 +58,6 @@ class BlackboardServer(HTTPServer):
         """
         def add_vote_to_vector(self, ID , vote):
             self.voteVector[ID] = vote
-            print self.voteVector
         
         def try_compute(self):
             if self.loyalty == False and len(self.voteVector) == self.loyalNodes and self.compute_first == False:
@@ -78,50 +73,43 @@ class BlackboardServer(HTTPServer):
             if len(self.vectorList) == self.loyalNodes:
                 self.compute_resulting_round()
         
+        #The byzantine node sends its faulty votes to the honest nodes
         def compute_round_one_byzantine(self):
-            print "TIME TO SNEAKY SNEAKY"
-            resultVector = compute_byzantine_vote_round1(self.loyalNodes, self.totalNodes, True)
-            print resultVector
+            resultVector = compute_byzantine_vote_round1(self.loyalNodes, self.totalNodes, self.tie)
             count = 0
-            do = True
             for vessel in self.vessels:
-                if vessel != self.vessel_ip and do == True:
+                if vessel != self.vessel_ip and count < self.loyalNodes:
                     vote = resultVector[count]
                     self.thread_contact_vessel(vessel, '/propagated', 'POST', self.vessel_id, vote)
                     count += 1
-                    if count == 2:
-                        do = False
 
+        #An honest node sends a list of received votes to all other nodes
         def compute_round_two(self):
             voteList = []
             for key in self.voteVector.keys():
                 voteList.append(self.voteVector[key])
 
             self.thread_propagate_vessels('/propagatedVector', 'POST', self.vessel_id, voteList)
-            print "honest sent"
 
+        #The byzantine node sends its faulty vote vectors to the honest nodes
         def compute_round_two_byzantine(self):
-            result_vectors = compute_byzantine_vote_round2(self.loyalNodes, self.totalNodes, True)
+            result_vectors = compute_byzantine_vote_round2(self.loyalNodes, self.totalNodes, self.tie)
             count = 0
-            do = True 
             for vessel in self.vessels:
-                if vessel != self.vessel_ip and do == True:
+                if vessel != self.vessel_ip and count < self.loyalNodes:
                     result_vector = result_vectors[count]
                     self.thread_contact_vessel(vessel, '/propagatedVector', 'POST', self.vessel_id, result_vector)
-                    print "byzantine sent"
                     count += 1
-                    if count == 2:
-                        do = False
-
+        '''
+        	Compute the final result using the list of vote vectors, comparing each index and putting the majority 
+        	in each index of the result vector. Finaly count the elements in that vector and output the result.
+        '''
         def compute_resulting_round(self):
             if (self.loyalty == True):
                 voteList = []
                 for key in self.voteVector.keys():
                     voteList.append(self.voteVector[key])
                 self.vectorList.append(voteList)
-
-                print self.vessel_id
-                print self.vectorList
                 self.result_vector = []
                 for i in range (0, self.totalNodes):
                     attack = 0
@@ -132,14 +120,6 @@ class BlackboardServer(HTTPServer):
                         else:
                             retreat +=1
 
-                    print "No attacks: "  + str(attack)
-                    print "No retreats: " + str(retreat)
-                    # if self.voteVector[self.vessel_id] == True or self.voteVector[self.vessel_id] == 'True':
-                        # attack = attack - 1
-                        # print "Minused attacks!"
-                    # else:
-                        # print "Minused retreats!"
-                        # retreat = retreat - 1
                     if attack > retreat:
                         self.result_vector.append(True)
                     elif retreat > attack:
@@ -157,7 +137,7 @@ class BlackboardServer(HTTPServer):
                     else:
                         pass
 
-                print "I am going to " + "attack!" if attacks >= retreats else "I am going to retreat!"
+                print "I am going to attack!" if attacks >= retreats else "I am going to retreat!"
                 print self.result_vector
             else:
                 pass
@@ -273,7 +253,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
                 elif self.path == "/vote/result":
                     entries = ""
-                    
+                    #Try to compute a result from the votes
                     self.server.try_compute()
                     with open('server/vote_result_template.html', 'r') as template:
                         data = template.read()
@@ -317,7 +297,6 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                     postData = self.parse_POST_request() 
                     self.process_vector(postData) 
 
-                if retransmit:
 			# do_POST send the message only when the function finishes
 			# We must then create threads if we want to do some heavy computation
 			# 
@@ -332,37 +311,41 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 #------------------------------------------------------------------------------------------------------
 	# We might want some functions here as well
 #------------------------------------------------------------------------------------------------------
+        #Add True to own vote vector and propagate vote
         def vote_attack(self):
             self.server.add_vote_to_vector(self.server.vessel_id, True)
             #Propagate attack order
             self.thread_propagate_vessels("/propagated", "POST", self.server.vessel_id, True)
         
+        #Add False to own vote vector and propagate vote
         def vote_retreat(self):
             self.server.add_vote_to_vector(self.server.vessel_id, False)
             #Propagate attack order
             self.thread_propagate_vessels("/propagated", "POST", self.server.vessel_id, False)
 
-        """
-            Sets a nodes loyalty to byzantine
-        """
+        #Sets a nodes loyalty to byzantine
         def set_byzantine(self):
             print str(self.server.vessel_id) + " is now byzantine."
             self.server.loyalty = False
 
+        #Add a propagated vote to own vote vector
         def process_vote(self, postData):
             received_vote = ast.literal_eval(postData['value'][0])
             sender = ast.literal_eval(postData['key'][0])
             self.server.add_vote_to_vector(sender, received_vote)
 
+        #Add a propagated vote vector to own vector list
         def process_vector(self, postData):
             vector = ast.literal_eval(postData['value'][0])
             self.server.vectorList.append(vector)
 
+        #Help method for vessel contacting
         def thread_contact_vessel(self, vessel_ip, path, action, key, value):
             thread = Thread(target=self.server.contact_vessel, args=(vessel_ip, path, action, key, value ))
             thread.daemon = True
             thread.start()
-        
+
+        #Help method for vessel contacting
         def thread_propagate_vessels(self, path, action, key, value):
             thread = Thread(target=self.server.propagate_value_to_vessels , args=(path, action, key, value ))
             thread.daemon = True
